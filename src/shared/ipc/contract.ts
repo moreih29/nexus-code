@@ -154,6 +154,7 @@ import {
 } from "../remote/account";
 import {
   BugReportDraftSchema,
+  BugReportFieldsSchema,
   BugReportLocaleSchema,
   BugReportOutcomeSchema,
   ReportedErrorSchema,
@@ -2125,7 +2126,15 @@ const remoteContracts = {
         z.object({ locale: BugReportLocaleSchema, includeErrors: z.boolean() }),
         BugReportContextSchema,
       ),
-      sendBugReport: call(BugReportDraftSchema, BugReportOutcomeSchema),
+      bugReportDraft: call(z.object({ owner: z.string() }), BugReportFieldsSchema.nullable()),
+      saveBugReportDraft: call(
+        z.object({ owner: z.string(), fields: BugReportFieldsSchema }),
+        z.void(),
+      ),
+      sendBugReport: call(
+        BugReportDraftSchema.extend({ owner: z.string() }),
+        BugReportOutcomeSchema,
+      ),
       phonePushPolicy: call(z.void(), PhonePushPolicySchema),
       setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
       peerSessionsWatch: call(

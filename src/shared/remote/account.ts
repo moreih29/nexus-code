@@ -135,3 +135,7 @@ export const KEY_FAILURES = [
   "needs-password",
 ] as const;
 export type KeyFailure = (typeof KEY_FAILURES)[number];
+
+export function remoteAccountKey(state: RemoteAccountState | null): string | null {
+  return state?.status === "signed-in" ? JSON.stringify([state.server, state.user.id]) : null;
+}

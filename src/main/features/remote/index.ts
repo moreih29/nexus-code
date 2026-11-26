@@ -11,7 +11,11 @@ import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
-import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
+import {
+  type AccountKeyState,
+  deviceLabel,
+  remoteAccountKey,
+} from "../../../shared/remote/account";
 import { bugReportOsVersion } from "../../../shared/remote/bug-report";
 import type { RoomState } from "../../../shared/remote/room";
 import type { SystemStats } from "../../../shared/system/stats";
@@ -28,6 +32,7 @@ import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { AgentGate } from "./agent-gate";
+import { BugReportDrafts, StoredBugReportDraftSchema } from "./bug-report-drafts";
 import { BugReports } from "./bug-reports";
 import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
@@ -251,6 +256,20 @@ export async function registerRemoteChannel(options: {
   const recentErrors = appErrors;
   const relayFailed = (code: string, status?: number) => recentErrors.record("relay", code, status);
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
+  const accountOwner = (): string | null => remoteAccountKey(account.state());
+  const reportDrafts = new BugReportDrafts(
+    new SealedFile(
+      join(app.getPath("sessionData"), "Cache", "bug-report-draft.bin"),
+      box,
+      StoredBugReportDraftSchema,
+    ),
+    accountOwner,
+  );
+  const pruneReportDraft = (drop = false) =>
+    (drop ? reportDrafts.drop() : reportDrafts.prune()).catch(() =>
+      log.warn("Bug report draft could not be cleaned up"),
+    );
+  let reportOwner: string | null = null;
   const account = new RemoteAccount({
     server,
     ...remoteWays(process.env, app.isPackaged, server),
@@ -264,6 +283,12 @@ export async function registerRemoteChannel(options: {
       showAppWindow();
     },
     onChange: (state) => {
+      const owner = remoteAccountKey(state);
+      if (owner !== reportOwner) {
+        reportOwner = owner;
+        bugReports.resetPending();
+        void pruneReportDraft(owner === null);
+      }
       push.accountChanged();
       broadcast("remote", "accountChanged", state);
       void keys?.accountChanged(state).catch(() => {});
@@ -475,6 +500,7 @@ export async function registerRemoteChannel(options: {
 
   const restored = keychain.whenOpen("remote", async () => {
     await account.restore();
+    await pruneReportDraft();
     void account.syncDeviceName();
     keys = accountKeys;
     void accountKeys
@@ -573,8 +599,29 @@ export async function registerRemoteChannel(options: {
         const { locale, includeErrors } = validateArgs(c.bugReportContext.args, args);
         return ipcOk(bugReports.context(locale, includeErrors));
       },
-      sendBugReport: async (args: unknown) =>
-        ipcOk(await bugReports.send(validateArgs(c.sendBugReport.args, args))),
+      bugReportDraft: async (args: unknown) => {
+        const { owner } = validateArgs(c.bugReportDraft.args, args);
+        return ipcOk(await reportDrafts.read(owner));
+      },
+      saveBugReportDraft: async (args: unknown) => {
+        const { owner, fields } = validateArgs(c.saveBugReportDraft.args, args);
+        await reportDrafts.write(owner, fields);
+        return ipcOk(undefined);
+      },
+      sendBugReport: async (args: unknown) => {
+        const { owner, ...draft } = validateArgs(c.sendBugReport.args, args);
+        const id = await reportDrafts.idFor(owner, draft).catch(() => undefined);
+        if (accountOwner() !== owner) {
+          return ipcOk({ status: "failed" as const, failure: "signed-out" as const });
+        }
+        const outcome = await bugReports.send(draft, id);
+        if (outcome.status === "sent" && id) {
+          await reportDrafts
+            .sent(owner, id)
+            .catch(() => log.warn("Sent bug report draft could not be cleaned up"));
+        }
+        return ipcOk(outcome);
+      },
       phonePushPolicy: async () => ipcOk(options.phonePush.get()),
       setPhonePushPolicy: async (args: unknown) => {
         const { policy } = validateArgs(c.setPhonePushPolicy.args, args);

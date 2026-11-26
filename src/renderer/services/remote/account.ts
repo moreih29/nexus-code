@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import type { RemoteAccountState } from "../../../shared/remote/account";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 
-export function remoteAccountKey(state: RemoteAccountState | null): string | null {
-  return state?.status === "signed-in" ? JSON.stringify([state.server, state.user.id]) : null;
-}
+export { remoteAccountKey } from "../../../shared/remote/account";
 
 export function observeRemoteAccount(take: (state: RemoteAccountState) => void): () => void {
   let useInitialReply = true;

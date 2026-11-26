@@ -47,7 +47,11 @@ export class BugReports {
     return draft.shown ? shownErrorsAsOf(draft.shown, (this.deps.now ?? Date.now)()) : [];
   }
 
-  async send(draft: BugReportDraft): Promise<BugReportOutcome> {
+  resetPending(): void {
+    this.pending = null;
+  }
+
+  async send(draft: BugReportDraft, draftId?: string): Promise<BugReportOutcome> {
     const key = JSON.stringify([
       cleanBugReportDescription(draft.description),
       draft.contactOk,
@@ -61,10 +65,12 @@ export class BugReports {
         count,
       ]),
     ]);
-    if (this.pending?.key !== key) {
-      this.pending = { key, id: (this.deps.newId ?? randomUUID)() };
-    }
-    const pending = this.pending;
+    const pending = draftId
+      ? { key, id: draftId }
+      : this.pending?.key === key
+        ? this.pending
+        : { key, id: (this.deps.newId ?? randomUUID)() };
+    this.pending = pending;
     try {
       const body = buildBugReport(
         pending.id,
