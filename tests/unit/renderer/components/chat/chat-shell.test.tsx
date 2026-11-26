@@ -270,6 +270,55 @@ describe("an image clicked among images the agent read", () => {
   });
 });
 
+describe("what fills the files a chat opened", () => {
+  const links = sourceOf("services/chat/local-chat-links.ts");
+
+  test("only a click handler or the quick look on screen asks for one", () => {
+    const grants = links
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /\bgrant\(/.test(line) && !line.startsWith("const grant"));
+    expect(grants).toEqual([
+      "if (target.file) grant(target.file);",
+      "grant(path);",
+      "grant(target);",
+      "grant(path);",
+      "grant(path);",
+    ]);
+    expect(links.match(/env\.looked\(/g)).toHaveLength(1);
+    expect(links.match(/setLooked\(/g)).toHaveLength(2);
+    expect(links).toContain("if (shown && needsGrant(shown, latest.current.rootPath");
+  });
+
+  test("only the chat's links send them, from what was looked at", () => {
+    expect(links).toContain("opened: outside.opened");
+    expect(links.match(/grantOutside\(/g)).toHaveLength(2);
+    expect(links).toMatch(/jobOutputFiles\(\{ tasks \}, source\.tools\),\s+undefined,\s+looked,/);
+  });
+
+  test("rendering answers alone opens nothing", () => {
+    const looked: string[] = [];
+    const shown: (QuickLookList | null)[] = [];
+    localChatLinks({
+      workspaceId: crypto.randomUUID(),
+      tabId: "t",
+      cwd: "/repo",
+      now: () => ({
+        source: { items: [], tools: {}, agentItems: {} },
+        rootPath: "/repo",
+        outside: { files: [], opened: [] },
+        split: true,
+      }),
+      changesOf: () => undefined,
+      opensAttached: () => false,
+      look: (list) => shown.push(list),
+      looked: (path) => looked.push(path),
+    });
+    expect(looked).toEqual([]);
+    expect(shown).toEqual([]);
+  });
+});
+
 describe("what a quick look shows is what the user looked at", () => {
   test("the file on screen, not an image held in the answer or a dropped draft", () => {
     expect(shownFile({ files: ["/tmp/a.png", "/tmp/b.png"], index: 1 })).toBe("/tmp/b.png");
