@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -13,10 +15,21 @@ import {
   PREVIEW_DOCUMENT_CSP,
   PreviewDocuments,
   type PreviewOwner,
+  previewDocumentCsp,
   previewHandlers,
   releaseWithPage,
 } from "../../../../src/main/features/custom-protocols/nexus-preview";
+import { PreviewScopes } from "../../../../src/main/features/custom-protocols/preview-scopes";
 import type { CallContext } from "../../../../src/main/infra/ipc-router";
+
+function directives(policy: string): Record<string, string[]> {
+  return Object.fromEntries(
+    policy.split(";").map((part) => {
+      const [name = "", ...values] = part.trim().split(/\s+/);
+      return [name, values];
+    }),
+  );
+}
 
 function tokens(): () => string {
   let next = 0;
@@ -146,16 +159,112 @@ describe("buildNexusPreviewHandler", () => {
     expect(serve(documents, `nexus-preview://${token}/`).status).toBe(404);
   });
 
-  test("the preview's policy lets a page run as in a browser, and keeps the disk out", () => {
-    for (const source of ["*", "data:", "blob:", "nexus-workspace:", "'unsafe-inline'"]) {
-      expect(PREVIEW_DOCUMENT_CSP).toContain(source);
+  test("a preview without a folder loads from https and itself, reads nothing, and sends nothing", () => {
+    const policy = directives(PREVIEW_DOCUMENT_CSP);
+    expect(policy["default-src"]).toEqual(["'none'"]);
+    expect(policy["script-src"]).toEqual([
+      "'unsafe-inline'",
+      "'unsafe-eval'",
+      "'wasm-unsafe-eval'",
+      "https:",
+      "data:",
+      "blob:",
+    ]);
+    for (const name of ["style-src", "img-src", "font-src", "media-src"]) {
+      expect(policy[name]).toContain("https:");
+      expect(policy[name]).not.toContain("http:");
+    }
+    for (const name of [
+      "connect-src",
+      "frame-src",
+      "child-src",
+      "worker-src",
+      "object-src",
+      "form-action",
+      "base-uri",
+      "manifest-src",
+    ]) {
+      expect(policy[name]).toEqual(["'none'"]);
     }
     expect(PREVIEW_DOCUMENT_CSP).not.toContain("file:");
+    expect(PREVIEW_DOCUMENT_CSP).not.toContain("nexus-workspace:");
+    expect(PREVIEW_DOCUMENT_CSP).not.toContain("*");
+  });
+
+  test("a preview with a folder loads, reads and bases only on that folder's address", () => {
+    const scope = "a".repeat(32);
+    const own = `nexus-workspace://${scope}.scope`;
+    const policy = directives(previewDocumentCsp(scope));
+    for (const name of ["script-src", "style-src", "img-src", "font-src", "media-src"]) {
+      expect(policy[name]).toContain(own);
+    }
+    expect(policy["connect-src"]).toEqual([own]);
+    expect(policy["base-uri"]).toEqual([own]);
+    expect(policy["frame-src"]).toEqual(["'none'"]);
+  });
+
+  test("serves a document under the policy of the folder it was put with", async () => {
+    const documents = new PreviewDocuments(tokens());
+    const scope = "b".repeat(32);
+    const token = documents.put(WINDOW_A, "<p>a</p>", undefined, scope);
+    const response = await buildNexusPreviewHandler(documents)(
+      new Request(`nexus-preview://${token}/`),
+    );
+    expect(response.headers.get("Content-Security-Policy")).toBe(previewDocumentCsp(scope));
   });
 });
 
 describe("the preview channel", () => {
   const ctx = (id: number) => ({ sender: { id } }) as unknown as CallContext;
+
+  test("opens a folder for a page, but none for a home or a root, even through a link", async () => {
+    const documents = new PreviewDocuments(tokens());
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-home-")));
+    fs.mkdirSync(path.join(home, "r"));
+    fs.symlinkSync(home, path.join(home, "r", "home"));
+    try {
+      const scopes = new PreviewScopes(home);
+      const handlers = previewHandlers(documents, () => {}, scopes, home);
+      const open = (dir: string) => handlers.openScope({ workspaceId: "ws", dir }, ctx(WINDOW_A));
+      const own = await open(path.join(home, "r"));
+      expect(own?.base).toBe(`nexus-workspace://${own?.scope}.scope/`);
+      expect(await open(home)).toBeNull();
+      expect(await open(path.join(home, "r", "home"))).toBeNull();
+      expect(await open("/")).toBeNull();
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("knows a home named through a link or a short name as that home", async () => {
+    const documents = new PreviewDocuments(tokens());
+    const top = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-top-")));
+    const home = path.join(top, "home");
+    const named = path.join(top, "named");
+    fs.mkdirSync(path.join(home, "r"), { recursive: true });
+    fs.symlinkSync(home, named);
+    try {
+      const scopes = new PreviewScopes(named);
+      const handlers = previewHandlers(documents, () => {}, scopes, named);
+      const open = (dir: string) => handlers.openScope({ workspaceId: "ws", dir }, ctx(WINDOW_A));
+      expect(await open(home)).toBeNull();
+      expect(await open(top)).toBeNull();
+      expect(await open(path.join(home, "r"))).not.toBeNull();
+    } finally {
+      fs.rmSync(top, { recursive: true, force: true });
+    }
+  });
+
+  test("a document takes only a folder its own window opened", async () => {
+    const documents = new PreviewDocuments(tokens());
+    const scopes = new PreviewScopes("/nowhere");
+    const handlers = previewHandlers(documents, () => {}, scopes, "/nowhere");
+    const scope = scopes.open(WINDOW_B, "ws", "/srv/site/r") as string;
+    const theirs = handlers.putHtml({ html: "<p>a</p>", scope }, ctx(WINDOW_A));
+    expect(documents.scopeOf(theirs.token)).toBeUndefined();
+    const mine = handlers.putHtml({ html: "<p>a</p>", scope }, ctx(WINDOW_B));
+    expect(documents.scopeOf(mine.token)).toBe(scope);
+  });
 
   test("puts under the sender's window and returns the document's address", () => {
     const documents = new PreviewDocuments(tokens());

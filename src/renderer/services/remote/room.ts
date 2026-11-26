@@ -1,10 +1,13 @@
+import i18next from "i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { createListenerBus } from "../../../shared/util/listener-bus";
+import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useRemoteViewStore } from "../../state/stores/remote-view";
+import type { PeerSendState } from "../chat/composer-submit";
 import { compareVersions } from "../chat/versions";
 
 export function useRemoteRoom(): RoomState | null {
@@ -25,15 +28,25 @@ export function useRemoteRoom(): RoomState | null {
 
 export type PeerReach = "online" | "offline" | "disconnected";
 
-export function usePeerReach(deviceId: string): PeerReach {
-  const room = useShownRoom(useRemoteRoom());
+function peerReach(room: RoomState | null, deviceId: string): PeerReach {
   if (!room) return "online";
   if (room.status !== "online") return "disconnected";
   return room.peers.some((p) => p.id === deviceId && p.online) ? "online" : "offline";
 }
 
-export function usePeerControls(deviceId: string, assumeControl = true): boolean {
+export function usePeerConnection(
+  deviceId: string,
+  assumeControl: boolean,
+): { reach: PeerReach; controls: boolean } {
   const room = useRemoteRoom();
+  const shown = useRoomPresentation(room, deviceId);
+  return {
+    reach: peerReach(shown.room, deviceId),
+    controls: controlsOf(room, deviceId, assumeControl),
+  };
+}
+
+function controlsOf(room: RoomState | null, deviceId: string, assumeControl: boolean): boolean {
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
   return serves?.includes("chat.control") ?? assumeControl;
 }
@@ -93,6 +106,20 @@ export function servingPeers(room: RoomState | null): RoomPeer[] {
 
 export const DROP_SHOWN_AFTER_MS = 3000;
 
+export function usePeerSendState(ready: boolean): PeerSendState {
+  const [state, setState] = useState<PeerSendState>({ ready });
+  const until = state.until;
+  if (ready !== state.ready) {
+    setState(ready ? { ready } : { ready, until: Date.now() + DROP_SHOWN_AFTER_MS });
+  }
+  useEffect(() => {
+    if (until === undefined) return;
+    const timer = setTimeout(() => setState({ ready: false }), Math.max(0, until - Date.now()));
+    return () => clearTimeout(timer);
+  }, [until]);
+  return state;
+}
+
 const SELF = "";
 
 export function noteDrops(
@@ -119,6 +146,7 @@ export function shownRoom(
   room: RoomState | null,
   drops: ReadonlyMap<string, number>,
   now: number,
+  deviceId?: string,
 ): { room: RoomState | null; until?: number } {
   if (!room) return { room };
   let until: number | undefined;
@@ -131,11 +159,19 @@ export function shownRoom(
   const back = room.status === "connecting" || room.status === "waiting";
   const status = room.status === "online" || (back && fresh(SELF)) ? "online" : room.status;
   if (status !== "online") return { room };
-  const peers = room.peers.map((p) => (p.online || !fresh(p.id) ? p : { ...p, online: true }));
+  const peers = room.peers.map((p) =>
+    p.online || (deviceId !== undefined && deviceId !== p.id) || !fresh(p.id)
+      ? p
+      : { ...p, online: true },
+  );
   return { room: { status, peers }, ...(until !== undefined ? { until } : {}) };
 }
 
 export function useShownRoom(room: RoomState | null): RoomState | null {
+  return useRoomPresentation(room).room;
+}
+
+function useRoomPresentation(room: RoomState | null, deviceId?: string) {
   const prev = useRef<RoomState | null>(null);
   const drops = useRef(new Map<string, number>());
   const [, setTick] = useState(0);
@@ -144,14 +180,14 @@ export function useShownRoom(room: RoomState | null): RoomState | null {
     noteDrops(prev.current, room, drops.current, now);
     prev.current = room;
   }
-  const shown = shownRoom(room, drops.current, now);
+  const shown = shownRoom(room, drops.current, now, deviceId);
   const until = shown.until;
   useEffect(() => {
     if (until === undefined) return;
     const timer = setTimeout(() => setTick((n) => n + 1), Math.max(0, until - Date.now()) + 20);
     return () => clearTimeout(timer);
   }, [until]);
-  return shown.room;
+  return shown;
 }
 
 const DESKTOPS = new Set(["darwin", "win32", "linux"]);
@@ -261,8 +297,20 @@ export function observePeerSessions(
       listeners,
       stop: watchPeerSessionList(deviceId, (list, requested) => {
         if (!list && next.latest?.status === "ready") return;
+        const previous = next.latest?.status === "ready" ? next.latest.list : undefined;
         next.latest = list ? { status: "ready", list, requested } : { status: "unavailable" };
-        if (list) useRemoteViewStore.getState().refresh(deviceId, list);
+        if (list) {
+          const timedOut = list.consentResolutions?.some(
+            ({ id, reason }) =>
+              reason === "timeout" &&
+              previous?.consents?.some((consent) => consent.id === id) &&
+              !list.consents?.some((consent) => consent.id === id),
+          );
+          if (timedOut) {
+            showToast({ kind: "info", message: i18next.t("agentView.remote.consentTimeout") });
+          }
+          useRemoteViewStore.getState().refresh(deviceId, list);
+        }
         listeners.notify(next.latest);
       }),
     };

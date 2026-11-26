@@ -7,6 +7,7 @@ import type { AgentFsWatcher } from "../bridge/agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import {
   grantOutsideHandler,
+  outsideExistsHandler,
   readBinaryHandler,
   readdirHandler,
   readExternalHandler,
@@ -46,6 +47,7 @@ export function registerFsChannel(
       readRange: readRangeHandler(manager),
       readExternal: readExternalHandler(manager),
       grantOutside: grantOutsideHandler(),
+      outsideExists: outsideExistsHandler(manager),
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),
       mkdir: mkdirHandler(manager),

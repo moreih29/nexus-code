@@ -15,7 +15,8 @@
     "codex": "Codex",
     "profileRules": "Profiles by workspace",
     "instructions": "Instructions",
-    "remote": "Remote"
+    "remote": "Remote",
+    "crossWorkspace": "Workspace permissions"
   },
   "dialog": {
     "close": "Close settings",
@@ -274,11 +275,23 @@
       "description": "Agents can see and drive other tabs and sessions"
     },
     "crossWorkspace": {
-      "label": "Changes to other workspaces",
+      "label": "Cross-workspace approval",
       "ask": "Ask each time",
       "allow": "Allow",
       "deny": "Don't allow",
-      "description": "Reading them is always allowed"
+      "description": "Agent commands that change another workspace or its worktrees · Read-only commands excluded",
+      "remoteDescription": "Access to this computer from other devices",
+      "openRemote": "Remote access settings",
+      "manage": "Manage workspace permissions",
+      "preallowed": "Pre-approved workspaces",
+      "preallowedDescription": "Changes without asking under the Ask policy · Includes all worktrees",
+      "sessions": "Chat session approvals",
+      "sessionsDescription": "Destination workspace and worktrees · Only for the chat session shown",
+      "choose": "Choose workspace",
+      "add": "Pre-approve",
+      "revoke": "Revoke",
+      "empty": "No approvals",
+      "saveFailed": "Couldn't save workspace permissions."
     },
     "agentContext": {
       "label": "Tell Claude Code about nexus",
@@ -524,7 +537,13 @@
       "profile_rule_applies_one": "Applies now to {{count}} workspace",
       "profile_rule_applies_other": "Applies now to {{count}} workspaces",
       "profile_rule_others_one": "Includes {{count}} other workspace",
-      "profile_rule_others_other": "Includes {{count}} other workspaces"
+      "profile_rule_others_other": "Includes {{count}} other workspaces",
+      "workspaceSetting": "Settings › Agents › {{page}} · {{setting}}",
+      "workspaceScope": "Session approval covers {{workspace}} and its worktrees",
+      "changeInSettings": "Change in Settings",
+      "chatSession": "Allow for session",
+      "notificationTitle": "Workspace approval requested",
+      "notificationBody": "Open NexusCode to answer"
     },
     "heading": "nexus CLI"
   },

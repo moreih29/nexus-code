@@ -33,7 +33,7 @@ function renderer(state: () => CliChatState = () => "idle") {
     activity: () => null,
     claudeAsks: () => [],
     claudeAgents: { list: () => [] },
-    consents: { list: () => [] },
+    consents: { list: () => [], listResolutions: () => [] },
     ui: async (op: string, args: { workspaceIds: string[] }) => {
       if (op !== "sessions.snapshot") throw new Error(`unexpected ${op}`);
       reads.push(args.workspaceIds);

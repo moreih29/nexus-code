@@ -214,6 +214,14 @@ export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 export const ConsentAnswerSchema = z.enum(["once", "session", "deny"]);
 export type ConsentAnswer = z.infer<typeof ConsentAnswerSchema>;
 
+export const MAX_CONSENT_RESOLUTIONS = 64;
+
+export const RemoteConsentResolutionSchema = z.object({
+  id: z.string(),
+  reason: z.enum(["answered", "timeout", "cancelled"]),
+});
+export type RemoteConsentResolution = z.infer<typeof RemoteConsentResolutionSchema>;
+
 export const RemoteConsentSchema = z.object({
   id: z.string(),
   at: NumberSchema,
@@ -261,6 +269,18 @@ export const RemoteConsentSchema = z.object({
   eachTime: z.boolean(),
   answerable: z.boolean(),
   untimed: z.literal(true).optional(),
+  kind: z.literal("cross-workspace").optional().catch(undefined),
+  scope: z
+    .object({ workspaceName: z.string(), worktreeName: z.string().optional() })
+    .optional()
+    .catch(undefined),
+  allowScopes: z
+    .object({
+      once: z.literal("once"),
+      session: z.enum(["chat-session", "until-restart"]).optional(),
+    })
+    .optional()
+    .catch(undefined),
 });
 export type RemoteConsent = z.infer<typeof RemoteConsentSchema>;
 
@@ -279,6 +299,10 @@ const SessionsSchema = z.object({
   sessions: readableList(RemoteSessionSchema),
   incompleteWorkspaces: z.array(z.string()).optional(),
   consents: readableList(RemoteConsentSchema).optional(),
+  consentResolutions: readableList(
+    RemoteConsentResolutionSchema,
+    MAX_CONSENT_RESOLUTIONS,
+  ).optional(),
   recording: RemoteRecordingSchema.optional(),
 });
 

@@ -21,6 +21,7 @@ import {
 import type { AppPage } from "./app-csp";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { ClosePersistence } from "./close-persistence";
+import { allowsEmbeddedNavigation } from "./frame-navigation";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
 import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from "./page-health";
@@ -161,6 +162,12 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     if (isAllowedMainWindowNavigation(url, devServerUrl)) return;
     event.preventDefault();
     logger.warn("Blocked main window navigation");
+  });
+
+  win.webContents.on("will-frame-navigate", (details) => {
+    if (details.isMainFrame || allowsEmbeddedNavigation(details.url, details.initiator)) return;
+    details.preventDefault();
+    logger.warn("Blocked embedded frame navigation");
   });
 
   win.on("close", (event) => closePersistence.interceptClose(event, win));

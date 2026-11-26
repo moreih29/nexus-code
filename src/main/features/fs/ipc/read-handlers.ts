@@ -1,4 +1,8 @@
-import { isAbsoluteOutsidePath } from "../../../../shared/fs/outside-url";
+import {
+  isAbsoluteOutsidePath,
+  isDevicePath,
+  isNetworkOrDevicePath,
+} from "../../../../shared/fs/outside-url";
 import type {
   DirEntry,
   FileReadBinaryResult,
@@ -115,11 +119,32 @@ export function grantOutsideHandler(): (args: unknown) => Promise<void> {
   };
 }
 
+export function outsideExistsHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<boolean> {
+  return async (args: unknown): Promise<boolean> => {
+    const { workspaceId, absolutePath } = validateArgs(c.outsideExists.args, args);
+    if (
+      !isAbsoluteOutsidePath(absolutePath) ||
+      isNetworkOrDevicePath(absolutePath) ||
+      absolutePath.includes("\0")
+    ) {
+      return false;
+    }
+    const fs = await manager.getFs(workspaceId);
+    const read = await fs.readAbsoluteRange(absolutePath, 0, 0).catch(() => null);
+    return read !== null && read.kind !== "missing";
+  };
+}
+
 export function readExternalHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<FileReadResult> {
   return async (args: unknown): Promise<FileReadResult> => {
     const { workspaceId, absolutePath } = validateArgs(c.readExternal.args, args);
+    if (isDevicePath(absolutePath) || absolutePath.includes("\0")) {
+      return { kind: "missing", reason: "not-found" };
+    }
     const fs = await manager.getFs(workspaceId);
     return fs.readAbsolute(absolutePath);
   };

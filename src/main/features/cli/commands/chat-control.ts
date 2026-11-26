@@ -443,6 +443,7 @@ const chatRewind: CliCommand = {
         fromWorkspaceId: ctx.caller.workspaceId,
         fromTabId: ctx.caller.tabId,
         toWorkspaceId: target.workspace.id,
+        ...(target.workspace.id !== ctx.caller.workspaceId ? { otherWorkspaces: true } : {}),
         change: {
           kind: withFiles ? "chatRewindFiles" : "chatRewind",
           detail: `"${target.tab.title}" (#${i})`,

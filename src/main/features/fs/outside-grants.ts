@@ -9,7 +9,7 @@ interface Grant {
 
 const grants = new Map<string, Map<string, Grant>>();
 
-function absolute(p: string): string | null {
+export function cleanAbsolutePath(p: string): string | null {
   if (p.includes("\0")) return null;
   const drive = isDrivePath(p);
   if (!drive && !p.startsWith("/")) return null;
@@ -24,7 +24,7 @@ function comparable(p: string): string {
 
 function cleanAll(paths: readonly string[]): string[] {
   return paths
-    .map(absolute)
+    .map(cleanAbsolutePath)
     .filter((p): p is string => p !== null)
     .map(comparable);
 }
@@ -48,7 +48,7 @@ function isUnderDir(target: string, dir: string): boolean {
 }
 
 export function isOutsideGranted(workspaceId: string, absPath: string): boolean {
-  const target = absolute(absPath);
+  const target = cleanAbsolutePath(absPath);
   if (!target) return false;
   const key = comparable(target);
   for (const grant of grants.get(workspaceId)?.values() ?? []) {
@@ -62,7 +62,7 @@ export async function resolveOutsideGrant(
   workspaceId: string,
   absPath: string,
 ): Promise<string | null> {
-  const target = absolute(absPath);
+  const target = cleanAbsolutePath(absPath);
   if (!target) return null;
   const key = comparable(target);
   let real: string;

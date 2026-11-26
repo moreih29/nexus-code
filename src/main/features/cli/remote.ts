@@ -12,7 +12,7 @@ import {
   type RpcResult,
   UNTIMED_CONSENT_SCHEMA,
 } from "../../../../packages/remote-protocol/src";
-import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { PEER_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import { speaks } from "../../../shared/remote/room";
 import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
@@ -270,7 +270,7 @@ export async function askDevice<M extends RpcMethod>(
               ? AGENT_REQUEST_MS
               : undefined;
   if (method === "profiles.usage" && (params as RpcParams<"profiles.usage">).refresh) {
-    timeoutMs = PROFILE_USAGE_REFRESH_TIMEOUT_MS + 5_000;
+    timeoutMs = PEER_USAGE_REFRESH_TIMEOUT_MS;
   }
   if (asksUser && method !== "files.write.end" && speaks(device.schema, UNTIMED_CONSENT_SCHEMA)) {
     timeoutMs = Number.POSITIVE_INFINITY;

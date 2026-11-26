@@ -1,6 +1,14 @@
 import os from "node:os";
 import path from "node:path";
-import { app, autoUpdater, type BrowserWindow, dialog, powerMonitor, session } from "electron";
+import {
+  app,
+  autoUpdater,
+  type BrowserWindow,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  session,
+} from "electron";
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
@@ -52,11 +60,13 @@ import {
   installNexusWorkspaceProtocol,
   type PeerFileReader,
 } from "./features/custom-protocols/nexus-workspace";
+import { PreviewScopes } from "./features/custom-protocols/preview-scopes";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { reportWatchFailure } from "./features/fs/bridge/watch-failure-log";
 import { registerFsChannel } from "./features/fs/ipc";
+import { registerPickedAttachmentHandler } from "./features/fs/picked-attachment";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
 import {
@@ -171,10 +181,12 @@ installErrorSafetyNet();
 logChildProcessDeaths(app);
 
 setupRouter();
+registerPickedAttachmentHandler(ipcMain);
 
 registerAppSchemes();
 
 const previewDocuments = new PreviewDocuments();
+const previewScopes = new PreviewScopes(os.homedir());
 
 if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
@@ -223,6 +235,7 @@ let keychainChannel: { dispose(): void } | undefined;
 
 let remote: {
   themeChanged(): void;
+  wake(): void;
   consentsChanged(): void;
   forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
@@ -273,6 +286,13 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     notesFeature?.forgetWorkspace(removedWorkspaceId);
     remote?.forgetWorkspace(removedWorkspaceId);
     const currentState = stateService.getState();
+    if (currentState.cliPreallowedWorkspaces.includes(removedWorkspaceId)) {
+      stateService.setState({
+        cliPreallowedWorkspaces: currentState.cliPreallowedWorkspaces.filter(
+          (id) => id !== removedWorkspaceId,
+        ),
+      });
+    }
     const { agentInstructions, chatInstructionHistory, claudeInstructionDigests } = currentState;
     if (agentInstructions?.workspaces?.[removedWorkspaceId] !== undefined) {
       const config = withInstruction(agentInstructions, {
@@ -441,7 +461,7 @@ registerSystemChannel({
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
-registerPreviewChannel(previewDocuments);
+registerPreviewChannel(previewDocuments, previewScopes, os.homedir());
 
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
@@ -507,14 +527,17 @@ app.whenReady().then(async () => {
     updatesHandle?.startAutoChecks();
     powerMonitor.on("resume", () => updatesHandle?.onResume());
   }
-  powerMonitor.on("resume", () => broadcast("system", "woke", { at: Date.now() }));
+  powerMonitor.on("resume", () => {
+    remote?.wake();
+    broadcast("system", "woke", { at: Date.now() });
+  });
   powerMonitor.on("unlock-screen", () => broadcast("system", "woke", { at: Date.now() }));
 
   void sweepStaleControlDirs();
 
   await workspaceManager.init();
 
-  installNexusWorkspaceProtocol(workspaceManager, () => remote?.peerFiles ?? null);
+  installNexusWorkspaceProtocol(workspaceManager, () => remote?.peerFiles ?? null, previewScopes);
   installNexusPreviewProtocol(previewDocuments);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
@@ -758,11 +781,13 @@ app.whenReady().then(async () => {
         workspaces,
       );
     },
+    setPreallowedWorkspaces: (ids) => stateService.commitState({ cliPreallowedWorkspaces: ids }),
     settings: () => {
       const state = stateService.getState();
       return {
         enabled: state.cliEnabled ?? true,
         crossWorkspace: state.cliCrossWorkspace ?? "ask",
+        preallowedWorkspaces: state.cliPreallowedWorkspaces,
         agentContext: state.cliAgentContext ?? true,
       };
     },

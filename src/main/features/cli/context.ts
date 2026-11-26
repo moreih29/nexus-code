@@ -1,4 +1,9 @@
-import type { RpcMethod, RpcParams, RpcResult } from "../../../../packages/remote-protocol/src";
+import type {
+  RemoteConsentResolution,
+  RpcMethod,
+  RpcParams,
+  RpcResult,
+} from "../../../../packages/remote-protocol/src";
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
@@ -78,6 +83,7 @@ export interface CliConsents {
     signal?: AbortSignal,
   ): Promise<{ answer: CliConsentAnswer }>;
   list(): readonly PendingConsent[];
+  listResolutions(): RemoteConsentResolution[];
   answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
 }
 
@@ -240,6 +246,7 @@ export async function mayChange(
       fromTabId: ctx.caller.tabId,
       toWorkspaceId: workspace.id,
       change,
+      ...(ctx.caller.verified === true ? { verified: true } : {}),
     },
     signal,
   );

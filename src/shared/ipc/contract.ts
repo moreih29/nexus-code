@@ -1324,7 +1324,11 @@ const coreIpcContract = {
       get: call(z.void(), AppStateSchema),
       set: call(
         partialWithoutDefaults(
-          AppStateSchema.omit({ rememberedVoices: true, keychainSignature: true }),
+          AppStateSchema.omit({
+            rememberedVoices: true,
+            keychainSignature: true,
+            cliPreallowedWorkspaces: true,
+          }),
         ).extend({
           instructionEdits: z.array(InstructionEditSchema).optional(),
         }),
@@ -1625,6 +1629,10 @@ const coreIpcContract = {
       removeAll: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
+      outsideExists: call(
+        workspaceScoped({ absolutePath: z.string().min(1).max(4096) }),
+        z.boolean(),
+      ),
       grantOutside: call(
         workspaceScoped({
           owner: z.string().min(1).max(200),
@@ -1694,8 +1702,12 @@ const coreIpcContract = {
   preview: {
     call: {
       putHtml: call(
-        z.object({ token: z.string().optional(), html: z.string() }),
+        z.object({ token: z.string().optional(), html: z.string(), scope: z.string().optional() }),
         z.object({ token: z.string(), url: z.string() }),
+      ),
+      openScope: call(
+        z.object({ workspaceId: z.string().min(1), dir: z.string().min(1).max(4096) }),
+        z.object({ scope: z.string(), base: z.string() }).nullable(),
       ),
       releaseHtml: call(z.object({ token: z.string() }), z.void()),
     },
@@ -1963,6 +1975,22 @@ const coreIpcContract = {
   cli: {
     call: {
       uiRespond: call(CliUiRespondArgsSchema, z.void()),
+      workspaceGrants: call(
+        z.void(),
+        z.object({
+          preallowed: z.array(z.guid()),
+          sessions: z.array(
+            z.object({
+              id: z.guid(),
+              workspaceId: z.guid(),
+              fromWorkspaceId: z.guid(),
+              fromTabId: z.guid(),
+            }),
+          ),
+        }),
+      ),
+      setWorkspaceGrant: call(z.object({ workspaceId: z.guid(), allowed: z.boolean() }), z.void()),
+      revokeSessionGrant: call(z.object({ id: z.guid() }), z.void()),
       sessionsChanged: call(z.object({ revision: z.number().int().nonnegative() }), z.void()),
       activity: call(z.object({}), z.array(TabActivityEntrySchema)),
       waits: call(z.object({}), z.array(TerminalWaitSchema)),

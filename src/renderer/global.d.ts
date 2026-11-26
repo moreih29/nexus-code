@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-svgr/client" />
+import type { PickedAttachment } from "../shared/fs/picked-attachment";
 import type { IpcStreamStartResult } from "../shared/ipc/result";
 import type {
   CallArgs,
@@ -54,6 +55,7 @@ interface HostBridge {
 
 interface FilesBridge {
   getPathForFile(file: File): string;
+  readPickedAttachment(file: File): Promise<PickedAttachment | null>;
 }
 
 declare global {

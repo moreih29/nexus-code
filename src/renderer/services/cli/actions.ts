@@ -562,6 +562,7 @@ export const actionHandlers: {
     const { id, fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs, fromDevice } = args;
     const workspaces = useWorkspacesStore.getState().workspaces;
     const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? shortId(id);
+    const grantWorkspaceId = workspaces.find((w) => w.id === toWorkspaceId)?.task?.parentId;
     const fromTab = fromDevice
       ? undefined
       : useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
@@ -574,6 +575,7 @@ export const actionHandlers: {
         : {}),
       ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
+      ...(args.crossWorkspace ? { crossWorkspace: name(grantWorkspaceId ?? toWorkspaceId) } : {}),
       sameWorkspace: !fromDevice && fromWorkspaceId === toWorkspaceId,
       change,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),

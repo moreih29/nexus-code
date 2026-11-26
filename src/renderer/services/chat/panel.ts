@@ -1,7 +1,8 @@
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { isNetworkLink } from "../../../shared/fs/outside-url";
 import { isUnder, isWindowsPath, slashWindowsPath } from "../../../shared/fs/relative-path";
-import { splitAttachments } from "./composer-input";
+import { attachmentTarget, isFolder, splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
 import { fileKind, resolveFilePath } from "./links";
@@ -510,22 +511,28 @@ export function distinctResults(
   return out;
 }
 
+const filesByItem = new WeakMap<UserItem, { cwd: string; files: string[] }>();
+
 export function attachedFilesOf(item: UserItem, cwd: string): string[] {
   if (item.optimistic || item.text.startsWith(RELAY_MARK)) return [];
-  return splitAttachments(item.text).files.flatMap((named) => {
-    const path = resolveFilePath(named, cwd);
+  const known = filesByItem.get(item);
+  if (known?.cwd === cwd) return known.files;
+  const files = splitAttachments(item.text).files.flatMap((named) => {
+    const path = isFolder(named) ? null : resolveFilePath(attachmentTarget(named), cwd);
     return path ? [path] : [];
   });
+  filesByItem.set(item, { cwd, files });
+  return files;
 }
 
 export function attachedImagesOf(item: UserItem, cwd: string): string[] {
   return attachedFilesOf(item, cwd).filter((path) => fileKind(path) === "image");
 }
 
-export function attachedImagesIn(items: readonly ChatItem[], cwd: string): string[] {
+export function attachedFilesIn(items: readonly ChatItem[], cwd: string): string[] {
   const files = new Set<string>();
   for (const item of items) {
-    if (item.kind === "user") for (const file of attachedImagesOf(item, cwd)) files.add(file);
+    if (item.kind === "user") for (const file of attachedFilesOf(item, cwd)) files.add(file);
   }
   return [...files];
 }
@@ -685,7 +692,6 @@ export interface AnswerExtras {
 }
 
 export const MAX_ANSWER_FILES = 8;
-const MAX_ANSWER_CANDIDATES = 2 * MAX_ANSWER_FILES;
 export const MAX_ANSWER_IMAGES = 4;
 
 export function answerExtras(
@@ -750,11 +756,9 @@ export function answerExtras(
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
-      const picked = files.slice(0, MAX_ANSWER_CANDIDATES);
-      const others = Object.entries(elsewhere).filter(([path]) => picked.includes(path));
       out.set(answer, {
-        files: picked,
-        ...(others.length > 0 ? { elsewhere: Object.fromEntries(others) } : {}),
+        files,
+        ...(Object.keys(elsewhere).length > 0 ? { elsewhere } : {}),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }
@@ -771,11 +775,9 @@ export function answerExtras(
 
 export interface OutsideLinks {
   files: string[];
-  dirs: string[];
 }
 
 export const MAX_OUTSIDE_FILES = 2000;
-export const MAX_OUTSIDE_DIRS = 200;
 
 export function outsideLinksOf(
   items: ChatItem[],
@@ -785,33 +787,72 @@ export function outsideLinksOf(
   looked: readonly string[] = [],
   attached?: (file: string) => boolean,
 ): OutsideLinks {
-  if (!root) return { files: [], dirs: [] };
-  const named = new Set<string>(looked);
+  if (!root) return { files: [] };
+  const outside = (file: string) => !isUnder(file, root);
+  const named = new Set<string>(looked.filter(outside));
+  for (const tool of Object.values(tools)) {
+    if (tool.status !== "done") continue;
+    const input = rec(tool.input);
+    const path = str(input?.file_path) ?? str(input?.notebook_path);
+    for (const file of path ? [path, ...sentFilesOf(tool)] : sentFilesOf(tool)) {
+      const abs = resolveFilePath(file, cwd);
+      if (abs && outside(abs)) named.add(abs);
+    }
+  }
+  for (const file of attachedFilesIn(items, cwd)) {
+    if (outside(file) && (attached?.(file) ?? true)) named.add(file);
+  }
+  for (const file of outsideLinkedFiles(
+    items,
+    tools,
+    cwd,
+    root,
+    (target) => !isNetworkLink(target),
+  )) {
+    if (fileKind(file) === "image") named.add(file);
+  }
+  return { files: [...named].slice(-MAX_OUTSIDE_FILES) };
+}
+
+export function outsideLinkedFiles(
+  items: ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+  root: string,
+  keep: (target: string) => boolean = () => true,
+): string[] {
+  if (!root) return [];
+  const named = new Set<string>();
+  const places = linkPlaceIndex(tools, cwd);
+  for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {
+    if (result.kind !== "file" || !keep(result.target)) continue;
+    for (const place of linkPlaces(result.target, places)) {
+      if (!isUnder(place.path, root)) named.add(place.path);
+    }
+  }
+  return [...named].slice(-MAX_OUTSIDE_FILES);
+}
+
+export function hostedOutsideFiles(
+  items: ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+  root: string,
+  attached?: (file: string) => boolean,
+): string[] {
+  if (!root) return [];
+  const named = new Set<string>();
   for (const tool of Object.values(tools)) {
     const input = rec(tool.input);
     const path = str(input?.file_path) ?? str(input?.notebook_path);
     for (const file of path ? [path, ...sentFilesOf(tool)] : sentFilesOf(tool)) {
       const abs = resolveFilePath(file, cwd);
-      if (abs) named.add(abs);
+      if (abs && !isUnder(abs, root)) named.add(abs);
     }
   }
-  for (const item of items) {
-    if (item.kind !== "user") continue;
-    for (const file of attachedImagesOf(item, cwd)) if (attached?.(file) ?? true) named.add(file);
-  }
-  const places = linkPlaceIndex(tools, cwd);
-  for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {
-    if (result.kind !== "file") continue;
-    for (const place of linkPlaces(result.target, places)) named.add(place.path);
-  }
-  const files = [...named].filter((file) => !isUnder(file, root));
-  const dirs = new Set<string>();
-  for (const file of files) {
-    if (!/\.html?$/i.test(file)) continue;
-    const dir = file.slice(0, file.lastIndexOf("/"));
-    if (dir && !isUnder(root, dir)) dirs.add(dir);
-  }
-  return { files: files.slice(-MAX_OUTSIDE_FILES), dirs: [...dirs].slice(-MAX_OUTSIDE_DIRS) };
+  for (const file of outsideLinkedFiles(items, tools, cwd, root)) named.add(file);
+  for (const file of outsideLinksOf(items, {}, cwd, root, [], attached).files) named.add(file);
+  return [...named].slice(-MAX_OUTSIDE_FILES);
 }
 
 const SHARE_FILE = /^\/\/([^/]+)\/([^/]+)\/(.+)$/;

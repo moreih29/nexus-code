@@ -57,6 +57,7 @@ import {
   dispatchQueuedMessage,
   isChatWriteRejected,
   type QueuedMessage,
+  unconfirmedMessage,
 } from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
 import { compareVersions } from "../versions";
@@ -1454,6 +1455,10 @@ export class CodexController {
     await this.sendMessage(text, images, { now: true });
   }
 
+  async submitLocal(text: string, images: ImageBlock[], now: boolean): Promise<void> {
+    await this.sendMessage(text, images, { now, localSubmission: true });
+  }
+
   async sendWithTiming(
     text: string,
     images: ImageBlock[],
@@ -1507,12 +1512,14 @@ export class CodexController {
       device,
       now,
       queued,
+      localSubmission,
     }: {
       from?: RelaySender;
       id?: string;
       device?: string;
       now?: boolean;
       queued?: QueuedMessage;
+      localSubmission?: boolean;
     },
   ): Promise<{ heldId: string; afterTurn?: true } | undefined> {
     const collaboration = this.collaborationChange;
@@ -1565,6 +1572,18 @@ export class CodexController {
       }
     }
     const clientUserMessageId = queued?.clientUserMessageId ?? (id ? `peer-${id}` : nextId());
+    const rememberUnconfirmed = (error: unknown) => {
+      this.flushNow();
+      const pending = {
+        ...unconfirmedMessage({ id: clientUserMessageId, text, images }, error),
+        clientUserMessageId,
+      };
+      const observed = this.model.items.some(
+        (item) =>
+          item.kind === "user" && item.key === `u-${clientUserMessageId}` && item.state === "taken",
+      );
+      if (!observed) this.update((prev) => ({ ...prev, queue: [...prev.queue, pending] }));
+    };
     const record = from ? { id: clientUserMessageId, from, at: Date.now() } : undefined;
     if (record) this.hooks.onRelayed?.(record);
     const told = (result: Record<string, unknown>, fallback?: string) => {
@@ -1582,7 +1601,11 @@ export class CodexController {
         told(result, turnId);
         return;
       } catch (err) {
-        if (!(err instanceof CodexReplyError)) throw err;
+        if (!(err instanceof CodexReplyError)) {
+          if (!localSubmission || isChatWriteRejected(err) || this.disposed) throw err;
+          rememberUnconfirmed(err);
+          return;
+        }
         this.flushNow();
         log.info(`steer not taken: ${(err as Error).message}`);
         if (this.model.running) {
@@ -1626,7 +1649,7 @@ export class CodexController {
           ) {
             this.turnPicks = undefined;
           }
-          if (!id && error instanceof CodexReplyError) {
+          if (!localSubmission && !id && error instanceof CodexReplyError) {
             await written.then(
               () => {
                 const failed: QueuedMessage = {
@@ -1652,7 +1675,16 @@ export class CodexController {
         this.sendNextQueued();
       });
     this.startingTurn = start;
-    if (id) await start;
+    if (localSubmission) {
+      try {
+        await start;
+      } catch (error) {
+        if (error instanceof CodexReplyError || isChatWriteRejected(error) || this.disposed) {
+          throw error;
+        }
+        rememberUnconfirmed(error);
+      }
+    } else if (id) await start;
     else {
       void start.catch(() => {});
       await written;

@@ -15,6 +15,7 @@ import {
   type RelayStatus,
   SEND_BUFFER_STALL_MS,
   SOCKET_OPEN_TIMEOUT_MS,
+  WAKE_PONG_WAIT_MS,
 } from "../../../../../src/main/features/remote/relay-connection";
 import { SocketRetryAfter } from "../../../../../src/main/features/remote/retry-after";
 import {
@@ -657,6 +658,39 @@ describe("the heartbeat", () => {
     socket.emit("open");
     return { relay, sockets, frames, statuses, socket };
   }
+
+  test("waking replaces an outstanding heartbeat and an immediate pong cancels the retry", async () => {
+    const { relay, socket } = await open({ every: 10_000, wait: 6_000 });
+    try {
+      jest.advanceTimersByTime(10_000);
+      relay.wake();
+      expect(socket.sent).toEqual([RELAY_PING, RELAY_PING]);
+      socket.emit("message", { data: RELAY_PONG });
+      jest.advanceTimersByTime(2 * WAKE_PONG_WAIT_MS);
+      expect(socket.sent).toHaveLength(2);
+      expect(socket.closed).toBe(false);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test.each([true, false])("wake tries again after 2.5 seconds (pong: %s)", async (answered) => {
+    const { relay, socket } = await open({ every: 25_000, wait: 10_000 });
+    try {
+      relay.wake();
+      expect(socket.sent).toEqual([RELAY_PING]);
+      jest.advanceTimersByTime(WAKE_PONG_WAIT_MS - 1);
+      expect(socket.sent).toHaveLength(1);
+      jest.advanceTimersByTime(1);
+      expect(socket.sent).toEqual([RELAY_PING, RELAY_PING]);
+      expect(socket.closed).toBe(false);
+      if (answered) socket.emit("message", { data: RELAY_PONG });
+      jest.advanceTimersByTime(WAKE_PONG_WAIT_MS);
+      expect(socket.closes).toEqual(answered ? [] : [[1000, "pong-timeout"]]);
+    } finally {
+      relay.stop();
+    }
+  });
 
   test("an answered heartbeat keeps the socket, and the answer is no frame", async () => {
     const { relay, sockets, frames, socket } = await open();

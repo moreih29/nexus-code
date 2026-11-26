@@ -7,6 +7,7 @@ import { nextZoomStep } from "../../../services/editor/preview/pdf";
 import { type FilePart, readWorkspaceRange } from "../../../services/editor/preview/read-range";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { usePreviewDraft } from "./preview-draft";
 import { type FindResult, usePreviewFinder } from "./preview-find";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
@@ -97,6 +98,7 @@ const ZOOM_SENSITIVITY = 0.005;
 
 function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
   const version = useFileVersion(workspaceId, relPath);
+  const draft = usePreviewDraft()?.file;
   const containerRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<{ viewer: PDFViewer; links: PDFLinkService } | null>(null);
@@ -156,14 +158,17 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
     let task: ReturnType<PdfJs["getDocument"]> | null = null;
     let shown = false;
     void (async () => {
-      const head = await readWorkspaceRange(
-        workspaceId,
-        relPath,
-        0,
-        READ_RANGE_MAX_BYTES,
-        undefined,
-        abort.signal,
-      ).catch(() => null);
+      const read = async (
+        offset: number,
+        length: number,
+        mtime?: string,
+      ): Promise<FilePart | null> => {
+        if (!draft)
+          return readWorkspaceRange(workspaceId, relPath, offset, length, mtime, abort.signal);
+        const bytes = new Uint8Array(await draft.slice(offset, offset + length).arrayBuffer());
+        return { bytes, size: draft.size, mtime: String(draft.lastModified) };
+      };
+      const head = await read(0, READ_RANGE_MAX_BYTES).catch(() => null);
       if (cancelled) return;
       if (!head) {
         setStatus({ kind: "failed" });
@@ -185,14 +190,7 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
           ? { data: head.bytes, enableXfa: false }
           : {
               range: rangeTransport(pdfjs, head, failed, (begin, end) =>
-                readWorkspaceRange(
-                  workspaceId,
-                  relPath,
-                  begin,
-                  end - begin,
-                  head.mtime,
-                  abort.signal,
-                ).catch(() => null),
+                read(begin, end - begin, head.mtime).catch(() => null),
               ),
               rangeChunkSize: PDF_CHUNK_BYTES,
               disableAutoFetch: true,
@@ -245,7 +243,7 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
       abort.abort();
       if (!shown) void task?.destroy();
     };
-  }, [workspaceId, relPath, version]);
+  }, [workspaceId, relPath, version, draft]);
 
   useEffect(
     () => () => {

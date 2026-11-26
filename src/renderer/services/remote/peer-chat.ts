@@ -24,6 +24,7 @@ export interface ChatRef {
 
 export interface PeerChat {
   read: PeerRead<WatchedChat>;
+  sendReady: boolean;
   loadEarlier(): void;
   loadingEarlier: boolean;
 }
@@ -43,7 +44,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
   latest.current = read;
   const [loadingEarlier, setLoadingEarlier] = useState(false);
 
-  const online = usePeerWatch<ChatWatch, "peerChatUpdate">({
+  const { online, ready } = usePeerWatch<ChatWatch, "peerChatUpdate">({
     deviceId,
     target: JSON.stringify([workspaceId, tabId]),
     shown,
@@ -167,6 +168,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
 
   return {
     read: !online && read.status === "loading" ? { status: "unavailable" } : read,
+    sendReady: ready && read.status === "ready",
     loadEarlier,
     loadingEarlier,
   };

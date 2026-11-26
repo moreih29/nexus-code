@@ -8,7 +8,7 @@ import { knownFsErrorMessage } from "../../utils/error-classification";
 
 const log = createLogger("renderer");
 
-export type ErrorSurface = "inline" | "banner" | "toast" | "auto";
+export type ErrorSurface = "inline" | "banner" | "toast" | "specific-toast" | "auto";
 
 export interface InlineSurfaceResult {
   readonly surface: "inline";
@@ -40,22 +40,6 @@ export interface SurfaceErrorOptions {
   onRetry?: () => void;
 }
 
-function buildUserMessage(error: AppError): string {
-  switch (error.category) {
-    case "cancelled":
-      return i18next.t("errors:generic.cancelled");
-
-    case "invalid-input":
-      return buildInvalidInputMessage(error);
-
-    case "failed":
-      return buildFailedMessage(error);
-
-    case "bug":
-      return i18next.t("errors:generic.bug");
-  }
-}
-
 function buildInvalidInputMessage(error: AppError): string {
   if (error.domain === "ssh" && error.code === "invalid-host")
     return i18next.t("common:ssh.invalid_host");
@@ -65,22 +49,22 @@ function buildInvalidInputMessage(error: AppError): string {
   return i18next.t("errors:generic.invalid-input");
 }
 
-function buildFailedMessage(error: AppError): string {
+function buildSpecificFailedMessage(error: AppError): string | undefined {
   if (error.code === "terminal-input-failed") return i18next.t("errors:terminal.inputFailed");
   if (error.code === "terminal-input-queue-full")
     return i18next.t("errors:terminal.inputQueueFull");
   if (error.code === "clipboard-write-failed") return i18next.t("errors:clipboard.writeFailed");
   if (error.code === ATTACH_FOLDER_LINK) return i18next.t("errors:chat.attachFolderLink");
   if (error.domain === "fs" && error.code) {
-    return knownFsErrorMessage(error.code) ?? i18next.t("errors:generic.failed");
+    return knownFsErrorMessage(error.code);
   }
   if (error.domain === "git" && error.code) {
-    return gitCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
+    return gitCodeToUserMessage(error.code);
   }
   if (error.domain === "ssh") {
     return sshCodeToUserMessage(error.code);
   }
-  return i18next.t("errors:generic.failed");
+  return undefined;
 }
 
 function sshCodeToUserMessage(code: string | undefined): string {
@@ -163,9 +147,9 @@ export function surfaceError(error: AppError, options: SurfaceErrorOptions): Sur
 }
 
 function routeInvalidInput(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
-  const userMessage = buildUserMessage(error);
+  const userMessage = buildInvalidInputMessage(error);
 
-  if (surface === "toast" || surface === "banner") {
+  if (surface === "toast" || surface === "specific-toast" || surface === "banner") {
     log.warn(
       `surfaceError: invalid-input routed to inline (requested '${surface}' is illegal for this category). ${buildInternalMessage(error)}`,
     );
@@ -179,12 +163,15 @@ function routeFailed(
   surface: ErrorSurface,
   onRetry?: () => void,
 ): SurfaceErrorResult {
-  const userMessage = buildUserMessage(error);
   const internalMessage = buildInternalMessage(error);
 
   log.warn(`surfaceError: failed — ${internalMessage}`, {
     correlationId: error.correlationId,
   });
+
+  const specific = buildSpecificFailedMessage(error);
+  if (surface === "specific-toast" && specific === undefined) return { surface: "silent" };
+  const userMessage = specific ?? i18next.t("errors:generic.failed");
 
   if (surface === "inline") {
     return { surface: "inline", userMessage };
@@ -195,18 +182,21 @@ function routeFailed(
   }
 
   const actions = onRetry ? [{ label: i18next.t("common:action.retry"), onAction: onRetry }] : [];
-  showToast({ kind: "error", message: userMessage, actions });
+  showToast(
+    { kind: "error", message: userMessage, actions },
+    { reflowOnDuplicate: surface === "specific-toast" },
+  );
   return { surface: "toast" };
 }
 
 function routeBug(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
-  const userMessage = buildUserMessage(error);
   const internalMessage = buildInternalMessage(error);
 
   log.error(`surfaceError: bug — ${internalMessage}`, {
     correlationId: error.correlationId,
   });
 
+  if (surface === "specific-toast") return { surface: "silent" };
   if (surface === "inline" || surface === "banner") {
     log.warn(
       `surfaceError: bug demoted to toast (requested '${surface}' is illegal for bug category)`,
@@ -217,7 +207,7 @@ function routeBug(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
 
   showToast({
     kind: "error",
-    message: userMessage,
+    message: i18next.t("errors:generic.bug"),
     actions: [
       {
         label: i18next.t("common:action.copy_details"),

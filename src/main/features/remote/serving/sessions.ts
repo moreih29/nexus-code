@@ -525,13 +525,18 @@ export async function snapshotSessions(
     incompleteWorkspaces,
     waitingRequests,
     async forDevice(controls: ConsentControls): Promise<RpcResult<"sessions.list">> {
+      const consentResolutions = services.consents.listResolutions();
       const consents = await remoteConsents(
         services,
         controls,
         Date.now(),
         async (id) => tabsByWorkspace.get(id) ?? [],
       );
-      return { ...list, consents };
+      return {
+        ...list,
+        consents,
+        ...(consentResolutions.length > 0 ? { consentResolutions } : {}),
+      };
     },
   };
 }

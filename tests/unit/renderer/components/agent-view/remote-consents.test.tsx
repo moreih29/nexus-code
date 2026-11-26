@@ -109,6 +109,24 @@ describe("another computer's consent in the sidebar and chat", () => {
 });
 
 describe("what another computer's consent prompt says", () => {
+  test("shows the workspace and worktree with the host's conversation approval choices", () => {
+    const scoped = consent({
+      kind: "cross-workspace",
+      scope: { workspaceName: "app", worktreeName: "review" },
+      allowScopes: { once: "once", session: "chat-session" },
+    });
+    const html = card(scoped);
+    expect(html).toContain("zsh → app · review");
+    expect(html).toContain("Session approval covers app and its worktrees");
+    expect(html).toContain(">Allow for session<");
+    expect(html).toContain(">Allow once<");
+    const once = card({ ...scoped, eachTime: true, allowScopes: { once: "once" } });
+    expect(once).toContain("zsh → app · review");
+    expect(once).toContain(">Allow<");
+    expect(once).not.toContain("Session approval");
+    expect(once).not.toContain(">Allow for session<");
+  });
+
   test("what it would do, as this computer's prompt words it", () => {
     expect(consentActionOf(t, { kind: "tabClose", detail: "Review" })).toBe(
       'close the tab "Review"',

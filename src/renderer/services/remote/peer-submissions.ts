@@ -110,7 +110,6 @@ export function settlePeerSubmission(
     if (!entries.some((pending) => pending.nonce === entry.nonce)) return entries;
     return entries.flatMap((pending) => {
       if (pending.nonce !== entry.nonce) return [pending];
-      if (result.status === "unconfirmed" && pending.provisionalEcho) return [];
       if (result.status === "accepted") {
         if (!result.heldId && pending.provisionalEcho) return [];
         if (result.heldId && seen?.heldIds.has(result.heldId)) return [];

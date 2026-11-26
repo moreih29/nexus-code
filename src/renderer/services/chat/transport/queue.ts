@@ -37,6 +37,17 @@ export function isChatWriteRejected(error: unknown): boolean {
   return kind === "chat.stdin-write-failed" || kind === "chat.not-running";
 }
 
+export function unconfirmedMessage(
+  item: Pick<QueuedMessage, "id" | "text" | "images">,
+  error: unknown,
+): QueuedMessage {
+  return {
+    ...item,
+    status: "unconfirmed",
+    error: String(error instanceof Error ? error.message : error).slice(0, 1000),
+  };
+}
+
 export function dispatchQueuedMessage(
   queue: readonly QueuedMessage[],
   update: (change: (prev: ChatTabState) => ChatTabState) => void,

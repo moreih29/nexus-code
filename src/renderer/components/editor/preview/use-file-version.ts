@@ -2,21 +2,23 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { fileSignal } from "../../../services/editor/preview/file-refresh";
 import { peerOf, usePeerFileRevision } from "../../../services/remote/peer-workspace";
+import { usePreviewDraft } from "./preview-draft";
 
 export const PeerPreviewVersion = createContext<number | null>(null);
 
 export function useFileVersion(workspaceId: string, relPath: string): number {
-  const local = useLocalFileVersion(workspaceId, relPath);
+  const draft = usePreviewDraft();
+  const local = useLocalFileVersion(workspaceId, relPath, draft === null);
   const supplied = useContext(PeerPreviewVersion);
-  const remote = usePeerFileRevision(workspaceId, relPath, supplied === null);
-  return fileSignal(peerOf(workspaceId) !== null, local, supplied ?? remote);
+  const remote = usePeerFileRevision(workspaceId, relPath, draft === null && supplied === null);
+  return draft ? 0 : fileSignal(peerOf(workspaceId) !== null, local, supplied ?? remote);
 }
 
-function useLocalFileVersion(workspaceId: string, relPath: string): number {
+function useLocalFileVersion(workspaceId: string, relPath: string, enabled: boolean): number {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    if (peerOf(workspaceId)) return;
+    if (!enabled || peerOf(workspaceId)) return;
     let cancelled = false;
     let statKey: string | null | undefined;
     const refresh = (force: boolean) => {
@@ -44,7 +46,7 @@ function useLocalFileVersion(workspaceId: string, relPath: string): number {
       unsubscribeFs();
       unsubscribeGit();
     };
-  }, [workspaceId, relPath]);
+  }, [workspaceId, relPath, enabled]);
 
   return version;
 }

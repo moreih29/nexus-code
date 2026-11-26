@@ -11,7 +11,11 @@ import {
   showsEmptyChat,
 } from "../../../../../src/renderer/components/chat/chat-shell";
 import type { QuickLookList } from "../../../../../src/renderer/components/chat/quick-look";
-import { localChatLinks } from "../../../../../src/renderer/services/chat/local-chat-links";
+import {
+  localChatLinks,
+  needsGrant,
+  shownFile,
+} from "../../../../../src/renderer/services/chat/local-chat-links";
 import {
   type ChatModel,
   emptyModel,
@@ -176,7 +180,7 @@ describe("a changed file opened from a local chat", () => {
       now: () => ({
         source: { items: [], tools: {}, agentItems: {} },
         rootPath: root,
-        outside: { files: outside, dirs: [] },
+        outside: { files: outside },
         split: true,
       }),
       changesOf: (path) => ({ [path]: "before" }),
@@ -203,5 +207,34 @@ describe("a changed file opened from a local chat", () => {
     const granted = links("/repo", ["/tmp/notes.md"]);
     granted.made.openChange?.("/tmp/notes.md");
     expect(granted.looked).toEqual([]);
+  });
+
+  test("a card opened from an answer's gallery grants that one file, not the gallery", () => {
+    const { made, looked, shown } = links("/repo");
+    const gallery = ["/tmp/a.png", "/home/u/.ssh/id_rsa", "/repo/b.png"];
+    made.openFile("/tmp/a.png", { gallery });
+    expect(looked).toEqual(["/tmp/a.png"]);
+    expect(shown).toEqual([{ files: gallery, index: 0 }]);
+  });
+});
+
+describe("what a quick look shows is what the user looked at", () => {
+  test("the file on screen, not an image held in the answer or a dropped draft", () => {
+    expect(shownFile({ files: ["/tmp/a.png", "/tmp/b.png"], index: 1 })).toBe("/tmp/b.png");
+    expect(shownFile(null)).toBeUndefined();
+    expect(
+      shownFile({ files: ["image:1"], index: 0, images: { "image:1": {} as never } }),
+    ).toBeUndefined();
+    expect(shownFile({ files: ["/tmp/a.png"], index: 0, draft: {} as File })).toBeUndefined();
+  });
+
+  test("asks a grant only for an absolute path outside the workspace not granted yet", () => {
+    const outside = { files: ["/tmp/granted.png"] };
+    expect(needsGrant("/tmp/new.png", "/repo", outside)).toBe(true);
+    expect(needsGrant("D:/out/new.png", "C:/repo", outside)).toBe(true);
+    expect(needsGrant("/tmp/granted.png", "/repo", outside)).toBe(false);
+    expect(needsGrant("/repo/src/a.ts", "/repo", outside)).toBe(false);
+    expect(needsGrant("image:1", "/repo", outside)).toBe(false);
+    expect(needsGrant("notes.md", "/repo", outside)).toBe(false);
   });
 });

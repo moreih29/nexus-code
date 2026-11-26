@@ -276,7 +276,7 @@ function services(
         ? [{ id: "ask-1", tool: "Bash", target: "rm -rf\n dist", always: ["Bash(rm:*)"], since: 5 }]
         : [],
     claudeAgents: { list: (_w: string, tab: string) => AGENTS[tab] ?? [], stop: async () => false },
-    consents: { list: () => CONSENTS, answer: async () => false },
+    consents: { list: () => CONSENTS, listResolutions: () => [], answer: async () => false },
     ui: (op: string, args: Parameters<typeof snapshot>[0], timeoutMs: number) => {
       if (op !== "sessions.snapshot") throw new Error(`unexpected ${op}`);
       return snapshot(args, timeoutMs);
@@ -884,6 +884,8 @@ const EXPECTED = {
         },
         eachTime: false,
         answerable: false,
+        scope: { workspaceName: "pinned" },
+        allowScopes: { once: "once", session: "until-restart" },
       },
       {
         id: "consent-2",
@@ -902,6 +904,8 @@ const EXPECTED = {
         },
         eachTime: false,
         answerable: true,
+        scope: { workspaceName: "root" },
+        allowScopes: { once: "once", session: "until-restart" },
       },
     ],
   },
@@ -1160,6 +1164,8 @@ const EXPECTED_WATCH = {
         },
         eachTime: false,
         answerable: false,
+        scope: { workspaceName: "pinned" },
+        allowScopes: { once: "once", session: "until-restart" },
       },
       {
         id: "consent-2",
@@ -1178,6 +1184,8 @@ const EXPECTED_WATCH = {
         },
         eachTime: false,
         answerable: true,
+        scope: { workspaceName: "root" },
+        allowScopes: { once: "once", session: "until-restart" },
       },
     ],
   },
@@ -1430,6 +1438,8 @@ const EXPECTED_WATCH = {
         },
         eachTime: false,
         answerable: false,
+        scope: { workspaceName: "pinned" },
+        allowScopes: { once: "once", session: "until-restart" },
       },
       {
         id: "consent-2",
@@ -1448,6 +1458,8 @@ const EXPECTED_WATCH = {
         },
         eachTime: false,
         answerable: true,
+        scope: { workspaceName: "root" },
+        allowScopes: { once: "once", session: "until-restart" },
       },
     ],
   },

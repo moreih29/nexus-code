@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { peerComposerController } from "../../../../../src/renderer/services/remote/peer-composer";
 import {
+  clearPeerComposition,
   peerContentsOf,
   restorePeerComposition,
 } from "../../../../../src/renderer/services/remote/peer-drafts";
@@ -38,6 +39,8 @@ function echo(key: string, clientNonce?: string, clientDeviceId?: string, index 
 afterEach(() => {
   forgetPeerSubmissions(ref);
   forgetPeerSubmissions(other);
+  clearPeerComposition(ref, peerContentsOf(ref));
+  clearPeerComposition(other, peerContentsOf(other));
 });
 
 describe("optimistic remote submissions", () => {
@@ -138,7 +141,8 @@ describe("optimistic remote submissions", () => {
     expect(peerSubmissionsOf(ref)[0]?.provisionalEcho).toBe("ambiguous");
     expect(peerSubmissionsOf(ref)).toHaveLength(1);
     settlePeerSubmission(ref, pending, { status: "unconfirmed", error: "timed out" });
-    expect(peerSubmissionsOf(ref)).toHaveLength(0);
+    expect(peerSubmissionsOf(ref)[0]).toMatchObject({ status: "unconfirmed" });
+    expect(recoverPeerSubmission(ref, pending.nonce)?.files).toEqual(files);
   });
 
   test("a lost answer with no row seen keeps the draft to recover", () => {
@@ -160,5 +164,38 @@ describe("optimistic remote submissions", () => {
     expect(peerSubmissionsOf(ref)[0]?.provisionalEcho).toBe("other");
     settlePeerSubmission(ref, pending, { status: "failed", error: "refused" });
     expect(peerSubmissionsOf(ref)[0]).toMatchObject({ status: "failed", error: "refused" });
+  });
+
+  test.each([
+    ["unchanged draft", false, ""],
+    ["new text", true, "repeat\nnext"],
+  ] as const)("clears only the submitted draft with %s", (_name, changed, expected) => {
+    restorePeerComposition(ref, input);
+    const submitted = peerContentsOf(ref);
+    if (changed) restorePeerComposition(ref, { ...input, text: "next" });
+    clearPeerComposition(ref, submitted);
+    expect(peerContentsOf(ref).text).toBe(expected);
+  });
+
+  test.each([
+    ["send-rejected", "", "repeat", undefined],
+    ["send-rejected", "next", "next", "failed"],
+    ["send-unconfirmed", "", "", "unconfirmed"],
+  ] as const)("settles %s with %j in the composer", async (kind, latest, expected, status) => {
+    const result = Promise.withResolvers<{ ok: false; kind: string; message: string }>();
+    const controller = peerComposerController({
+      ref,
+      agent: "codex",
+      settings: () => null,
+      onSettings: () => {},
+      filesRefused: "unavailable",
+      call: (() => result.promise) as never,
+    });
+    expect(controller.submitPeer?.("send", "repeat", [], [])).toBe(true);
+    if (latest) restorePeerComposition(ref, { ...input, text: latest });
+    result.resolve({ ok: false, kind, message: "send did not confirm" });
+    await Bun.sleep(0);
+    expect(peerContentsOf(ref).text).toBe(expected);
+    expect(peerSubmissionsOf(ref)[0]?.status).toBe(status);
   });
 });

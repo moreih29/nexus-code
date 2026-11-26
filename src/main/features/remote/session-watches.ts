@@ -23,12 +23,25 @@ type SessionRows = ReadonlyMap<string, readonly RemoteSession[]>;
 interface Watch {
   from: string;
   sent: string;
+  list: SessionsList;
   detail: OpenerDetail;
   rows: SessionRows;
 }
 
 function sameness(list: SessionsList): string {
   return JSON.stringify(list, (key, value) => (key === "expiresInMs" ? undefined : value));
+}
+
+function withLatestConsents(
+  previous: SessionsList,
+  { consents, consentResolutions }: SessionsList,
+): SessionsList {
+  const { consents: _pending, consentResolutions: _resolved, ...rest } = previous;
+  return {
+    ...rest,
+    ...(consents ? { consents } : {}),
+    ...(consentResolutions ? { consentResolutions } : {}),
+  };
 }
 
 function rowsByWorkspace(list: SessionsList, incomplete: ReadonlySet<string>): SessionRows {
@@ -85,9 +98,11 @@ export class SessionWatches {
       const [oldest] = mine[0] ?? [];
       if (oldest) this.watches.delete(oldest);
     }
+    const { watchId: _, ...sentList } = fitted.list;
     this.watches.set(watchId, {
       from,
       sent: sameness(fitted.list),
+      list: sentList,
       detail: fitted.detail,
       rows: rowsByWorkspace(list, snapshot.incompleteWorkspaces),
     });
@@ -130,7 +145,6 @@ export class SessionWatches {
       const lists = new Map<string, SessionsList>();
       for (const [watchId, watch] of watches) {
         const rows = withPreviousRows(currentRows, incomplete, watch.rows);
-        if (!rows) continue;
         let list = lists.get(watch.from);
         if (!list) {
           list = await snapshot.forDevice(watch.from);
@@ -140,14 +154,18 @@ export class SessionWatches {
         const update =
           incomplete.size === 0
             ? list
-            : { ...list, sessions: list.workspaces.flatMap(({ id }) => rows.get(id) ?? []) };
+            : rows
+              ? { ...list, sessions: list.workspaces.flatMap(({ id }) => rows.get(id) ?? []) }
+              : withLatestConsents(watch.list, list);
         const fitted = fitSessionUpdate({ ...update, watchId }, watch.detail);
         if (!fitted) continue;
         const same = sameness(fitted.list);
         if (watch.sent === same || (await this.deps.notify(watch.from, fitted.list))) {
+          const { watchId: _, ...sentList } = fitted.list;
           watch.sent = same;
+          watch.list = sentList;
           watch.detail = fitted.detail;
-          watch.rows = rows;
+          if (rows) watch.rows = rows;
         }
       }
     } catch (error) {

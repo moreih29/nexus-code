@@ -104,6 +104,9 @@ async function askPeer<T>(question: () => Promise<T>, chatSend = false): Promise
       const data = error.data as { outcome?: unknown } | undefined;
       if (chatSend && data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
       if (chatSend && data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
+      if (chatSend && error.code === RpcErrorCode.InvalidParams) {
+        return ipcErr("invalid-args", error.message);
+      }
       const kind =
         error.code === RpcErrorCode.NotFound
           ? "not-found"
@@ -172,6 +175,7 @@ export async function registerRemoteChannel(options: {
   account: RemoteAccount;
   keys: AccountKeys;
   themeChanged(): void;
+  wake(): void;
   consentsChanged(): void;
   forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
@@ -642,6 +646,7 @@ export async function registerRemoteChannel(options: {
       },
       peerChatSend: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatSend.args, args);
+        if (!room) return ipcErr("send-rejected", "not in the room");
         return askPeer(() => inRoom().request(deviceId, "chat.send", params), true);
       },
       peerChatAnswer: (args: unknown) => {
@@ -979,6 +984,7 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    wake: () => relay?.wake(),
     consentsChanged: () => push.consentsChanged(),
     forgetWorkspace: (workspaceId) => taskGit?.forget(workspaceId),
     peerFiles: async (peer, absPath, offset, length, signal) => {

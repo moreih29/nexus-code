@@ -67,7 +67,12 @@ describe("note new and note show", () => {
     app.notes[API] = app.notes[APP] ?? [];
     const denied = await nexus(app, ["note", "write", "Weekly", "hi", "--workspace", "api"]);
     expect(denied.stderr).toBe("nexus: the user did not allow it\n");
-    expect(app.asked[0]?.change).toEqual({ kind: "noteWrite", detail: "Weekly", body: "hi" });
+    expect(app.asked[0]?.change).toEqual({
+      kind: "noteWrite",
+      detail: "Weekly",
+      body: "hi",
+      eachTime: true,
+    });
     expect(blocksOf(app)).toHaveLength(3);
   });
 });

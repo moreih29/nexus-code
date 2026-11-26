@@ -26,6 +26,7 @@ import { configCommandOf } from "../../services/chat/claude/config";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex/commands";
 import { emptyCodexModel } from "../../services/chat/codex/model";
+import type { PeerSendState } from "../../services/chat/composer-submit";
 import type { GoalView } from "../../services/chat/goal";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type {
@@ -69,9 +70,9 @@ import {
   type PeerRead,
   refreshPeerSessions,
   TERMINAL_PROFILE_SCHEMA,
-  usePeerControls,
-  usePeerReach,
+  usePeerConnection,
   usePeerReadsChats,
+  usePeerSendState,
   usePeerSessions,
   usePeerSpeaks,
   usePeerTypes,
@@ -245,8 +246,7 @@ export function RemoteSessionPane({
   visible: boolean;
   host?: RemoteSessionHost | null;
 }) {
-  const reach = usePeerReach(target.deviceId);
-  const controls = usePeerControls(target.deviceId, host === null);
+  const { reach, controls } = usePeerConnection(target.deviceId, host === null);
   return (
     <RemoteSessionHostContext.Provider value={host}>
       <div
@@ -428,10 +428,11 @@ function RemoteChat({
   controls: boolean;
 }) {
   const { deviceId, workspaceId, tabId } = target;
-  const { read, loadEarlier, loadingEarlier } = usePeerChat(
+  const { read, sendReady, loadEarlier, loadingEarlier } = usePeerChat(
     { deviceId, workspaceId, tabId },
     visible,
   );
+  const peerSend = usePeerSendState(sendReady && controls);
   useSessionGone(visible && read.status === "gone");
   const page = read.status === "ready" ? read.value : null;
   const older = useMemo<OlderMessages | undefined>(
@@ -460,6 +461,7 @@ function RemoteChat({
         {...(older ? { older } : {})}
         visible={visible}
         reach={reach}
+        peerSend={peerSend}
         controls={controls}
         selfId={selfId}
       />
@@ -496,6 +498,7 @@ function RemoteChatView({
   older,
   visible,
   reach,
+  peerSend,
   controls,
   selfId,
 }: {
@@ -505,6 +508,7 @@ function RemoteChatView({
   older?: OlderMessages;
   visible: boolean;
   reach: PeerReach;
+  peerSend: PeerSendState;
   controls: boolean;
   selfId?: string;
 }) {
@@ -930,6 +934,7 @@ function RemoteChatView({
                   model={model}
                   page={page}
                   visible={visible}
+                  peerSend={peerSend}
                   toMain={shown !== undefined}
                   onShowMain={() => showAgent(null)}
                   goalBar={goalBar}
@@ -978,6 +983,7 @@ function RemoteControls({
   model,
   page,
   visible,
+  peerSend,
   toMain,
   onShowMain,
   goalBar,
@@ -991,6 +997,7 @@ function RemoteControls({
   model: ChatModel;
   page: WatchedChat;
   visible: boolean;
+  peerSend: PeerSendState;
   toMain: boolean;
   onShowMain: () => void;
   goalBar?: React.ReactNode;
@@ -1009,7 +1016,6 @@ function RemoteControls({
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
   const readsChats = usePeerReadsChats(deviceId);
-  const controls = usePeerControls(deviceId, host === null);
   const { deviceName, profile, workspaceName } = target;
   const instructions = useCallback(
     (slot: InstructionsChipSlot) => (
@@ -1018,11 +1024,11 @@ function RemoteControls({
         deviceName={deviceName}
         {...(profile ? { profile } : {})}
         workspaceName={workspaceName}
-        controls={controls}
+        controls
         {...slot}
       />
     ),
-    [deviceId, workspaceId, tabId, deviceName, profile, workspaceName, controls],
+    [deviceId, workspaceId, tabId, deviceName, profile, workspaceName],
   );
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
   const configurable = page.panel?.can?.config === true;
@@ -1188,8 +1194,10 @@ function RemoteControls({
       />
       {twinBanner}
       <Composer
+        key={composer.controller.key}
         controller={composer.controller}
         composition={composition}
+        peerSend={peerSend}
         takesDraft={false}
         state={composer.state}
         local={false}

@@ -20,12 +20,12 @@ import {
   resolveFilePath,
 } from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
-import { attachedImagesIn, changedFilesOf, imagesOf } from "../../services/chat/panel";
+import { attachedFilesIn, changedFilesOf, imagesOf } from "../../services/chat/panel";
 import { readRemoteFileBefore } from "../../services/remote/file-comparison";
 import { requestTabFocus } from "../../services/tab-focus";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import type { RemoteTarget } from "../../state/stores/remote-view";
-import type { ChatLinks } from "../chat/chat-links";
+import type { ChatLinks, OpenFileOptions } from "../chat/chat-links";
 import type { QuickLookList } from "../chat/quick-look";
 import { showToast } from "../ui/toast";
 import type { OpenRemoteFileBeside } from "./remote-session-host";
@@ -50,8 +50,11 @@ export function useRemoteLinks(
   latest.current = source;
   const items = source.model.items;
   const written = useMemo(
-    () => attachedImagesIn(items, cwd).filter((file) => attachShaped(peerWorkspace, file)),
-    [items, cwd, peerWorkspace],
+    () =>
+      attachedFilesIn(items, cwd).filter((file) =>
+        servedAttachment(peerWorkspace, workspaceRoot, file),
+      ),
+    [items, cwd, peerWorkspace, workspaceRoot],
   );
   const gone = useGoneAttachments(files, written);
   return useMemo<ChatLinks & { openBeside: OpenRemoteFileBeside }>(() => {
@@ -65,8 +68,12 @@ export function useRemoteLinks(
     };
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
-      const shown = imagesOf(model.items, model.tools, cwd, model.agentItems, (file) =>
-        attachShaped(peerWorkspace, file),
+      const shown = imagesOf(
+        model.items,
+        model.tools,
+        cwd,
+        model.agentItems,
+        (file) => attachShaped(peerWorkspace, file) && !gone.has(file),
       );
       const held = image.image ? latestReadFile(shown, image) : undefined;
       if (held) {
@@ -98,7 +105,18 @@ export function useRemoteLinks(
         ...(line ? { at: { path, line, ...(column ? { column } : {}) } } : {}),
       });
     };
-    const openFile = (written: string) => {
+    const openFile = (written: string, options?: OpenFileOptions) => {
+      if (options && "draft" in options) {
+        opened++;
+        setLook({ files: [written], index: 0, draft: options.draft });
+        return;
+      }
+      if (options) {
+        const { gallery } = options;
+        opened++;
+        setLook({ files: gallery, index: gallery.indexOf(written) });
+        return;
+      }
       const places = linkPlaces(written, linkPlaceIndex(latest.current.model.tools, cwd));
       void findLinkPlace(places, (paths) => files.there(paths)).then(
         (link) => link && showFile(link),

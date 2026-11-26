@@ -7,6 +7,18 @@ import { SETTINGS_ASKING_TO_TURN_ON, settingAskingToTurnOn } from "./settings";
 
 export const CONSENT_AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
 
+export function consentAllowScopes(
+  kind: string,
+  eachTime: boolean | undefined,
+  crossWorkspace: boolean,
+): NonNullable<RemoteConsent["allowScopes"]> {
+  if (eachTime) return { once: "once" };
+  return {
+    once: "once",
+    session: crossWorkspace && kind !== "sandboxExecution" ? "chat-session" : "until-restart",
+  };
+}
+
 type ProfileLayer = Extract<
   NonNullable<RemoteConsent["change"]["instructionEdit"]>["layer"],
   { kind: "profile" }

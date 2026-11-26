@@ -27,7 +27,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
-import type { RelayedMessage } from "../../../shared/chat/relay";
+import { RELAY_MARK, type RelayedMessage } from "../../../shared/chat/relay";
 import { shownNoteText } from "../../../shared/notes/line-report";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { shortId } from "../../../shared/util/short-id";
@@ -35,9 +35,8 @@ import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
 import { useChatFiles } from "../../services/chat/chat-files";
-import { splitAttachments } from "../../services/chat/composer-input";
+import { attachmentTarget, isFolder, splitAttachments } from "../../services/chat/composer-input";
 import { callsUnder, type ItemView, itemView, sameView } from "../../services/chat/item-view";
-import { fileKind } from "../../services/chat/links";
 import {
   indexOfCall,
   shownStart,
@@ -834,13 +833,14 @@ function ShellCard({ item }: { item: ShellItem }) {
   );
 }
 
-function AttachedFile({ path, sending }: { path: string; sending: boolean }) {
+function AttachedFile({ path, namedOnly }: { path: string; namedOnly: boolean }) {
   const { t } = useTranslation();
   const links = useChatLinks();
+  const target = attachmentTarget(path);
   const name = path.split(/[\\/]/).pop() ?? path;
   const chip =
     "flex max-w-56 items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm";
-  if (!links || sending || fileKind(path) !== "image" || links.opensAttached?.(path) === false) {
+  if (!links || namedOnly || isFolder(path) || links.opensAttached?.(target) === false) {
     return (
       <span title={path} className={chip}>
         <FileText className="size-3.5 shrink-0 text-muted-foreground" />
@@ -851,14 +851,14 @@ function AttachedFile({ path, sending }: { path: string; sending: boolean }) {
   return (
     <button
       type="button"
-      onClick={() => links.openFile(path)}
+      onClick={() => links.openFile(target)}
       title={path}
-      aria-label={`${t("chat.links.look")}: ${name}`}
+      aria-label={`${t("chat.links.look")} · ${name}`}
       className={cn(
         chip,
         "cursor-zoom-in hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       )}
-      data-testid="chat-attached-image"
+      data-testid="chat-attached-file"
     >
       <FileKindIcon path={path} className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="truncate">{name}</span>
@@ -908,7 +908,11 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
       {files.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {files.map((path) => (
-            <AttachedFile key={path} path={path} sending={optimistic !== undefined} />
+            <AttachedFile
+              key={path}
+              path={path}
+              namedOnly={optimistic !== undefined || item.text.startsWith(RELAY_MARK)}
+            />
           ))}
         </div>
       )}

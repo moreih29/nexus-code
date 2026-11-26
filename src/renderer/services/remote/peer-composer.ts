@@ -28,10 +28,12 @@ import type { QueuedMessage } from "../chat/transport/queue";
 import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
 import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";
-import { clearPeerDraft } from "./peer-drafts";
+import { clearPeerDraft, restorePeerComposition } from "./peer-drafts";
 import {
   beginPeerSubmission,
   peerSubmissionHasRoom,
+  peerSubmissionsOf,
+  recoverPeerSubmission,
   settlePeerSubmission,
 } from "./peer-submissions";
 
@@ -244,11 +246,18 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       });
       context?.showMain?.();
       let dispatched = false;
-      const fail = (error: string, definite = false) =>
-        settlePeerSubmission(ref, entry, {
-          status: dispatched && !definite ? "unconfirmed" : "failed",
-          error,
-        });
+      const fail = (error: string, definite = false) => {
+        const status = dispatched && !definite ? "unconfirmed" : "failed";
+        settlePeerSubmission(ref, entry, { status, error });
+        if (
+          status === "failed" &&
+          peerSubmissionsOf(ref).some((pending) => pending.nonce === entry.nonce) &&
+          restorePeerComposition(ref, entry, true)
+        ) {
+          recoverPeerSubmission(ref, entry.nonce);
+          deps.onError?.(error);
+        }
+      };
       void (async () => {
         const uploads = await Promise.all(files.map(({ file }) => upload(file)));
         const result = await send(

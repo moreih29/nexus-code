@@ -1,5 +1,9 @@
 export interface PreviewDocumentStore {
-  put(html: string, token: string | undefined): Promise<{ token: string; url: string } | null>;
+  put(
+    html: string,
+    token: string | undefined,
+    scope?: string,
+  ): Promise<{ token: string; url: string } | null>;
   release(token: string): void;
 }
 
@@ -11,7 +15,7 @@ export interface PreviewFrame {
 export class PreviewDocumentLoader {
   private token: string | null = null;
   private shown: string | null = null;
-  private pending: string | null = null;
+  private pending: { html: string; scope?: string } | null = null;
   private putting = false;
   private closed = false;
 
@@ -20,9 +24,9 @@ export class PreviewDocumentLoader {
     private readonly frame: () => PreviewFrame | null,
   ) {}
 
-  load(html: string): Promise<void> {
+  load(html: string, scope?: string): Promise<void> {
     if (this.closed) return Promise.resolve();
-    this.pending = html;
+    this.pending = { html, ...(scope ? { scope } : {}) };
     return this.drain();
   }
 
@@ -38,9 +42,9 @@ export class PreviewDocumentLoader {
     if (this.putting) return;
     this.putting = true;
     try {
-      for (let html = this.pending; html !== null; html = this.pending) {
+      for (let next = this.pending; next !== null; next = this.pending) {
         this.pending = null;
-        const put = await this.store.put(html, this.token ?? undefined);
+        const put = await this.store.put(next.html, this.token ?? undefined, next.scope);
         if (put === null) continue;
         if (this.closed) {
           this.store.release(put.token);

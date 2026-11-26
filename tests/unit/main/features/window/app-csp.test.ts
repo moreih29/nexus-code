@@ -28,7 +28,7 @@ describe("appContentSecurityPolicy", () => {
     const policy = directives(appContentSecurityPolicy());
     expect(policy.get("script-src")).toEqual(["'self'", "'wasm-unsafe-eval'"]);
     expect(policy.get("default-src")).toEqual(["'self'"]);
-    expect(policy.get("frame-src")).toEqual(["nexus-preview:", "nexus-workspace:"]);
+    expect(policy.get("frame-src")).toEqual(["nexus-preview:"]);
     expect(policy.get("object-src")).toEqual(["'none'"]);
     expect(policy.get("base-uri")).toEqual(["'none'"]);
     expect(policy.get("connect-src")).not.toContain("https:");

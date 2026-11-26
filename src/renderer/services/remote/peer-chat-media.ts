@@ -173,13 +173,18 @@ const attachments = peerReads<Attachment>({
       : 2 * (image.data.length + image.mediaType.length + version.length),
 });
 
-const folderNames = peerReads<ReadonlySet<string>>({
+interface FolderNames {
+  files: ReadonlySet<string>;
+  truncated: boolean;
+}
+
+const folderNames = peerReads<FolderNames>({
   entries: 64,
   bytes: 512 * 1024,
   freshMs: 5_000,
-  size: (names) => {
+  size: ({ files }) => {
     let bytes = 0;
-    for (const name of names) bytes += 2 * name.length + 32;
+    for (const name of files) bytes += 2 * name.length + 32;
     return bytes;
   },
 });
@@ -275,7 +280,22 @@ export function peerChatFiles(
     folderNames.read(current, key(path), async (signal) => {
       const result = await ipcCallResult("remote", "peerFilesList", { ...where, path }, { signal });
       if (!result.ok) throw new Error(result.message);
-      return new Set(result.value.entries.filter((e) => e.kind !== "dir").map((e) => e.name));
+      return {
+        files: new Set(result.value.entries.filter((e) => e.kind !== "dir").map((e) => e.name)),
+        truncated: result.value.truncated === true,
+      };
+    });
+  const fileThere = (path: string) =>
+    presence.read(current, key(path), async (signal) => {
+      const result = await ipcCallResult(
+        "remote",
+        "peerFilesRead",
+        { ...where, path, as: "bytes", length: 0, versioned: true },
+        { signal },
+      );
+      if (result.ok) return result.value.kind === "bytes";
+      if (result.kind === "not-found") return false;
+      throw new Error(result.message);
     });
   return {
     access: mediaAccess(access, [deviceId, workspaceId], current),
@@ -293,13 +313,22 @@ export function peerChatFiles(
       }
       const dirs = [...byDir];
       const found = new Set<string>();
+      const unlisted: string[] = [];
       for (let i = 0; i < dirs.length && !current.signal.aborted; i += MAX_ACTIVE) {
         await Promise.all(
           dirs.slice(i, i + MAX_ACTIVE).map(async ([dir, entries]) => {
             const names = await namesIn(dir).catch(() => null);
             for (const { path, name } of entries) {
-              if (names?.has(name)) found.add(path);
+              if (names?.files.has(name)) found.add(path);
+              else if (!names || names.truncated) unlisted.push(path);
             }
+          }),
+        );
+      }
+      for (let i = 0; i < unlisted.length && !current.signal.aborted; i += MAX_ACTIVE) {
+        await Promise.all(
+          unlisted.slice(i, i + MAX_ACTIVE).map(async (path) => {
+            if (await fileThere(path).catch(() => false)) found.add(path);
           }),
         );
       }
@@ -308,24 +337,14 @@ export function peerChatFiles(
     async gone(paths) {
       if (!current || current.signal.aborted) return new Set<string>();
       const missing = new Set<string>();
-      await Promise.all(
-        paths.map(async (path) => {
-          const there = await presence
-            .read(current, key(path), async (signal) => {
-              const result = await ipcCallResult(
-                "remote",
-                "peerFilesRead",
-                { ...where, path, as: "bytes", length: 0, versioned: true },
-                { signal },
-              );
-              if (result.ok) return true;
-              if (result.kind === "not-found") return false;
-              throw new Error(result.message);
-            })
-            .catch(() => true);
-          if (!there) missing.add(path);
-        }),
-      );
+      for (let i = 0; i < paths.length && !current.signal.aborted; i += MAX_ACTIVE) {
+        await Promise.all(
+          paths.slice(i, i + MAX_ACTIVE).map(async (path) => {
+            const there = await fileThere(path).catch(() => true);
+            if (!there) missing.add(path);
+          }),
+        );
+      }
       return current.signal.aborted ? new Set() : missing;
     },
     picture(path) {

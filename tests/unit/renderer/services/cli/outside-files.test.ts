@@ -108,15 +108,15 @@ describe("chat.outsideFiles", () => {
 
   const NAMED = ["/tmp/cam/frame.jpg", "/tmp/scale/chart.png", "/tmp/scale/old.jpg"];
 
-  test("of the images the user attached, only those in the workspace's attach folder under the agent's root", async () => {
+  test("of the files the user attached, only those in the workspace's attach folder under the agent's root", async () => {
     attachRoot = ATTACH;
     const ours = `${ATTACH}/w1/c1/2/shot.png`;
-    const before = `${ATTACH}/w1/other-tab/1/theirs.png`;
+    const before = `${ATTACH}/w1/other-tab/1/theirs.pdf`;
     userSent(
       `look\n\n@${ours}`,
-      "and\n\n@/Users/me/Pictures/private.png",
+      "and\n\n@/Users/me/Documents/private.md",
       `@${before}`,
-      `@${ATTACH}/w1/c1/2/../../../other-tab/1/theirs.png`,
+      `@${ATTACH}/w1/c1/2/../../../other-tab/1/theirs.pdf`,
       `@${ATTACH}/w2/c9/1/another-workspace.png`,
       `@/tmp/attach/w1/c1/1/elsewhere.png`,
       relayedText({ kind: "tab", name: "Other", tabId: "t2" }, `@${ATTACH}/w1/c1/3/x.png`),
@@ -134,17 +134,16 @@ describe("chat.outsideFiles", () => {
 
   test("a file's name, as another device chose it, takes nothing out of the tab's folder", async () => {
     attachRoot = ATTACH;
-    userSent(
-      `@${ATTACH}/w1/c1/1/x${"%2F..".repeat(12)}%2Ftmp%2Fattach%2Fw1%2Fc1%2F1%2Fy.png`,
-      `@${ATTACH}/w1/c1/7/e%2Ff.png`,
-      `@${ATTACH}/w1/c1/4/a#b.png`,
-      `@${ATTACH}/w1/c1/5/c.png?x=1`,
-      `@${ATTACH}/w1/c1/6/d.png:12`,
-    );
+    const attached = [
+      `${ATTACH}/w1/c1/1/x${"%2F..".repeat(12)}%2Ftmp%2Fattach%2Fw1%2Fc1%2F1%2Fy.png`,
+      `${ATTACH}/w1/c1/7/e%2Ff.png`,
+      `${ATTACH}/w1/c1/4/a#b.png`,
+      `${ATTACH}/w1/c1/5/c.png?x=1`,
+      `${ATTACH}/w1/c1/6/d.png:12`,
+    ];
+    userSent(...attached.map((file) => `@${file}`));
     const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w1" } as never);
-    expect([...files].sort()).toEqual(
-      [...NAMED, `${ATTACH}/w1/c1/5/c.png`, `${ATTACH}/w1/c1/6/d.png`].sort(),
-    );
+    expect([...files].sort()).toEqual([...NAMED, ...attached].sort());
   });
 
   test("no attached image while main knows no attach root, as before an SSH host connects", async () => {

@@ -885,7 +885,7 @@
       "peer_sending_queued": "Sending to queue…",
       "peer_accepted": "Accepted by host",
       "peer_accepted_queued": "Queued by host",
-      "peer_failed": "Could not send",
+      "peer_failed": "Delivery failed",
       "peer_unconfirmed": "Delivery unconfirmed",
       "peer_recover": "Restore draft",
       "peer_limit": "Restore a recent draft before sending more messages",
@@ -1128,10 +1128,13 @@
       "files": "Files",
       "remove_file": "Remove file",
       "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "file_read_failed": "Could not attach {{name}} because the file could not be read.",
       "too_many_attachments": "A message can carry up to {{max}} images and files together.",
       "drop_title": "Drop to attach",
       "drop_hint": "Images and files go with your message",
-      "aria_codex": "Message to Codex"
+      "aria_codex": "Message to Codex",
+      "peer_wait_changed": "The draft changed, so it wasn't sent. Send it again.",
+      "peer_wait_offline": "Couldn't send while disconnected. Send again once reconnected."
     },
     "mode": {
       "aria": "Permission mode",
@@ -1334,6 +1337,8 @@
         "context": "Context {{percent}}%"
       }
     },
+    "more_files_one": "{{name}} · {{count}} more file",
+    "more_files_other": "{{name}} · {{count}} more files",
     "look": {
       "aria": "Quick look: {{name}}",
       "image": "Image {{number}}",
@@ -1364,7 +1369,8 @@
       "copy_path": "Copy path",
       "open_system": "Open in the system browser",
       "open_app_browser": "Open in the app's browser",
-      "copy_link": "Copy link"
+      "copy_link": "Copy link",
+      "network_path": "Network paths can't be opened."
     },
     "run": {
       "kind": "claude -p run",
@@ -1939,7 +1945,8 @@
       "closeTerminalTitle": "Close the terminal on {{device}}?",
       "closeTerminalBody": "It closes on that computer.",
       "consentThere": "Answer it on {{device}}",
-      "consentGone": "Already answered or withdrawn"
+      "consentGone": "Already answered or withdrawn",
+      "consentTimeout": "Approval timed out"
     }
   },
   "releaseNotes": {
