@@ -16,6 +16,7 @@ import { openOrRevealEditor } from "../../../services/editor";
 import {
   classifyLinkHref,
   type LinkClassifyContext,
+  linkTargetPath,
 } from "../../../services/editor/preview/link-router";
 import { buildOutsideUrl, buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { peerOf } from "../../../services/remote/peer-workspace";
@@ -30,6 +31,7 @@ import {
 } from "../../ui/markdown-body";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
+import { PeerFileImage } from "./peer-file-image";
 
 const log = createLogger("markdown-preview");
 
@@ -180,9 +182,24 @@ export function MarkdownPreview({
       img({ src, alt, ...rest }) {
         const rawSrc = typeof src === "string" ? src : "";
         const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
-        if (resolved === null) {
-          return <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />;
+        const unread = (
+          <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />
+        );
+        const outside =
+          resolved === null && viaHost ? linkTargetPath(rawSrc, currentFileAbsPath) : null;
+        if (outside) {
+          return (
+            <PeerFileImage
+              {...rest}
+              path={outside}
+              href={rawSrc}
+              parent={currentFileAbsPath}
+              alt={alt ?? ""}
+              fallback={unread}
+            />
+          );
         }
+        if (resolved === null) return unread;
         return <img {...rest} src={resolved} alt={alt ?? ""} />;
       },
       li: MdListItem,
@@ -195,7 +212,7 @@ export function MarkdownPreview({
       h5: MdHeading,
       h6: MdHeading,
     }),
-    [imageCtx, images, onLinkClick, workspaceId, t],
+    [imageCtx, images, onLinkClick, workspaceId, t, viaHost, currentFileAbsPath],
   );
 
   return (

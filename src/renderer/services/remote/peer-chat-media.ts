@@ -421,9 +421,8 @@ export function peerChatFiles(
           { ...where, path },
           { signal },
         );
-        if (!result.ok || result.value.kind !== "image") {
-          throw new Error(result.ok ? "not an image" : result.message);
-        }
+        if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
+        if (result.value.kind !== "image") throw new Error("not an image");
         return { mediaType: result.value.mediaType, data: result.value.data };
       });
     },
@@ -432,6 +431,11 @@ export function peerChatFiles(
     },
     ...grants,
   };
+}
+
+function failureKind(result: { kind: string }): string {
+  const code = (result as { code?: unknown }).code;
+  return typeof code === "string" ? code : result.kind;
 }
 
 function grantsFor(
@@ -452,10 +456,7 @@ function grantsFor(
         { ...where, ...link, purpose },
         { signal: current.signal },
       );
-      if (!result.ok) {
-        const code = (result as { code?: unknown }).code;
-        throw new LinkGrantError(result.message, typeof code === "string" ? code : result.kind);
-      }
+      if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
       return result.value.path;
     },
   };

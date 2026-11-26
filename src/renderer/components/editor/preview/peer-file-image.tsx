@@ -1,0 +1,62 @@
+import { useEffect, useState } from "react";
+import { LinkGrantError, useChatFiles } from "../../../services/chat/chat-files";
+import { imageSrc } from "../../../services/chat/image-look";
+import type { ImageBlock } from "../../../services/chat/model";
+import { ImageChip } from "../../chat/file-image";
+
+type Shown =
+  | { path: string; image: ImageBlock }
+  | { path: string; required: true }
+  | { path: string; failed: true };
+
+export function PeerFileImage({
+  path,
+  href,
+  parent,
+  alt,
+  fallback,
+  ...rest
+}: {
+  path: string;
+  href: string;
+  parent: string;
+  alt: string;
+  fallback: React.ReactNode;
+} & Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src" | "alt">) {
+  const files = useChatFiles();
+  const [shown, setShown] = useState<Shown | null>(null);
+  useEffect(() => {
+    if (!files) return;
+    let live = true;
+    void files.picture(path).then(
+      (image) => {
+        if (live) setShown({ path, image });
+      },
+      (error: unknown) => {
+        if (!live) return;
+        setShown(
+          error instanceof LinkGrantError && error.kind === "grant-required"
+            ? { path, required: true }
+            : { path, failed: true },
+        );
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [files, path]);
+  const current = shown?.path === path ? shown : null;
+  if (!files || !current) {
+    return (
+      <span
+        className="inline-block h-24 w-36 animate-pulse rounded-(--radius-control) bg-muted align-top"
+        data-testid="peer-file-image-pending"
+      />
+    );
+  }
+  if ("image" in current) return <img {...rest} src={imageSrc(current.image)} alt={alt} />;
+  if ("required" in current) {
+    return <ImageChip path={path} link={{ href, source: { kind: "file", parent } }} />;
+  }
+  return <>{fallback}</>;
+}

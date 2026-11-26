@@ -45,6 +45,16 @@ export function classifyLinkHref(href: string, ctx: LinkClassifyContext): Classi
   };
 }
 
+export function linkTargetPath(href: string, currentFileAbsPath: string): string | null {
+  const drive = /^[A-Za-z]:[\\/]/.test(href);
+  if (!href || href.startsWith("#") || (!drive && hasUrlScheme(href))) return null;
+  const filePath = decodeHrefPath(href.replace(/[?#].*$/, "")).replace(/\\/g, "/");
+  if (!filePath) return null;
+  return drive
+    ? normalizePosix(filePath)
+    : posixResolve(posixDirname(currentFileAbsPath), filePath);
+}
+
 function hasUrlScheme(href: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href);
 }
