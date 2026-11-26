@@ -51,8 +51,9 @@ export function offline(device: CliDevice, now: number): CliError {
 }
 
 export async function listDevices(ctx: CliContext): Promise<CliDevice[]> {
-  if (!ctx.services.remote.inRoom()) throw notInRoom();
-  return ctx.services.remote.devices();
+  const devices = await ctx.services.remote.devices(ctx.signal);
+  if (!devices) throw notInRoom();
+  return devices;
 }
 
 export async function resolveDevice(

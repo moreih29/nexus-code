@@ -24,12 +24,16 @@ import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { FileWrites } from "../../../../../src/main/features/remote/file-writes";
 import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
 import { dropPeerHolds } from "../../../../../src/main/features/remote/peer-holds";
-import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
+import {
+  type RelayConnectionDeps,
+  SOCKET_OPEN_TIMEOUT_MS,
+} from "../../../../../src/main/features/remote/relay-connection";
 import {
   MAX_MESSAGE_BYTES,
   PEER_GONE_GRACE_MS,
   RemoteRoom,
   type RemoteRoomDeps,
+  ROOM_READY_WAIT_MS,
   RpcFailure,
 } from "../../../../../src/main/features/remote/room";
 import {
@@ -53,6 +57,7 @@ class MockRelay {
     | ((from: string, frame: ClientFrame) => "silent" | "rate-limited" | "legacy-limit" | undefined)
     | null = null;
   readonly kept: { to: string; frame: Delivered }[] = [];
+  readonly heldPresence = new Set<string>();
 
   connection(device: Omit<RoomDevice, "online">, handlers: Handlers) {
     if (!this.devices.some((d) => d.id === device.id))
@@ -138,6 +143,7 @@ class MockRelay {
 
   presence() {
     for (const [id, handlers] of this.online) {
+      if (this.heldPresence.has(id)) continue;
       const frame: ServerFrame = {
         t: "presence",
         self: id,
@@ -184,6 +190,83 @@ function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<Remot
 
 describe("the room", () => {
   const chat = { workspaceId: "w1", tabId: "t1" };
+
+  test("the first presence publishes the current peers and releases requests on every connection", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const onChange = jest.fn();
+    const b = device(relay, "b", key, { onChange });
+    a.room.start();
+    try {
+      for (const start of [() => b.room.start(), b.reopen, b.reopen]) {
+        onChange.mockClear();
+        a.served.length = 0;
+        relay.heldPresence.add("b");
+        start();
+        expect(onChange.mock.calls.map(([state]) => state.status)).toEqual([
+          start === b.reopen ? "waiting" : "connecting",
+        ]);
+        const request = b.room.request("a", "sessions.list", {});
+        const ready = b.room.waitUntilReady();
+        await flushRelay();
+        expect(a.served).toHaveLength(0);
+        relay.heldPresence.delete("b");
+        relay.presence();
+        expect(onChange).toHaveBeenLastCalledWith({
+          status: "online",
+          peers: [expect.objectContaining({ id: "a", online: true })],
+        });
+        expect(await ready).toBe(true);
+        expect((await request).workspaces).toHaveLength(1);
+        expect(a.served).toEqual([{ from: "b", method: "sessions.list" }]);
+      }
+    } finally {
+      b.room.stop();
+      a.room.stop();
+    }
+  });
+
+  test("a missing first presence times out requests and triggers relay recovery", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key);
+    jest.useFakeTimers();
+    try {
+      a.room.start();
+      relay.heldPresence.add("b");
+      b.room.start();
+      const failed = jest.fn();
+      const request = b.room.request("a", "sessions.list", {}).catch(failed);
+      const ready = b.room.waitUntilReady();
+      jest.advanceTimersByTime(ROOM_READY_WAIT_MS - 1);
+      await flushRelay();
+      expect(failed).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      expect(await ready).toBe(false);
+      await request;
+      expect(failed).toHaveBeenCalledWith(
+        expect.objectContaining({ code: RpcErrorCode.Unavailable, message: "not in the room" }),
+      );
+      jest.advanceTimersByTime(SOCKET_OPEN_TIMEOUT_MS - ROOM_READY_WAIT_MS - 1);
+      expect(b.recoveries()).toBe(0);
+      jest.advanceTimersByTime(1);
+      expect(b.recoveries()).toBe(1);
+      expect(b.room.state().status).toBe("waiting");
+      relay.heldPresence.delete("b");
+      relay.presence();
+      jest.advanceTimersByTime(SOCKET_OPEN_TIMEOUT_MS);
+      expect(b.recoveries()).toBe(1);
+      expect(b.room.state().status).toBe("online");
+      expect(a.served).toHaveLength(0);
+    } finally {
+      b.room.stop();
+      a.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
   test.each([
     ["sessions.list", {}, undefined, 30_000],
     ["sessions.watch", {}, undefined, 30_000],

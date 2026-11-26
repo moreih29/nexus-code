@@ -37,6 +37,7 @@ const SEND_BUFFER_CHECK_MS = 1_000;
 const RECOVERY_LOG_INTERVAL_MS = 30_000;
 export type RelayRecoveryReason =
   | "pong-timeout"
+  | "presence-timeout"
   | "send-failed"
   | "send-buffer-stalled"
   | "inbox-stalled"

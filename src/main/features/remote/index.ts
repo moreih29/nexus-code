@@ -997,11 +997,15 @@ export async function registerRemoteChannel(options: {
     },
     cli: {
       inRoom: () => room !== null && roomState.status === "online",
-      devices: async () => {
+      devices: async (signal) => {
+        const current = room;
+        if (!current || !(await current.waitUntilReady(signal)) || current !== room) return null;
+        const listed = await account.devices().catch(() => null);
+        signal?.throwIfAborted();
+        if (room !== current || roomState.status !== "online") return null;
         const peers = roomState.peers;
         const self = account.state();
         const selfId = self.status === "signed-in" ? self.device.id : "";
-        const listed = await account.devices().catch(() => null);
         const known: {
           id: string;
           name: string;
@@ -1027,7 +1031,7 @@ export async function registerRemoteChannel(options: {
             ...(hostName ? { hostName } : {}),
             platform: d.platform,
             self: isSelf,
-            online: isSelf ? roomState.status === "online" : (peer?.online ?? false),
+            online: isSelf || (peer?.online ?? false),
             ...(d.lastSeenAt !== undefined ? { lastSeen: d.lastSeenAt } : {}),
             serves: peer?.serves ?? [],
             ...(peer?.schema ? { schema: peer.schema } : {}),
