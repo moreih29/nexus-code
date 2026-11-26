@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ToastInput } from "../../../../../src/renderer/components/ui/toast";
 
 type Status = Record<string, unknown> & { kind: string };
@@ -47,6 +47,7 @@ const { checkForUpdates, initUpdatesSubscriptions, installUpdate } = await impor
   "../../../../../src/renderer/services/updates/operations"
 );
 const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
+let previousUpdates: ReturnType<typeof useUpdatesStore.getState>;
 
 const newer = (latest: string, canInstall: boolean, trigger = "auto"): Status => ({
   kind: "newer",
@@ -62,6 +63,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  previousUpdates = useUpdatesStore.getState();
   toasts.length = 0;
   visible.clear();
   calls.length = 0;
@@ -74,6 +76,10 @@ beforeEach(() => {
     ignoredVersion: null,
     announcedVersion: null,
   });
+});
+
+afterEach(() => {
+  useUpdatesStore.setState(previousUpdates);
 });
 
 const actionCalls = () => calls.filter((call) => call.method !== "set");
