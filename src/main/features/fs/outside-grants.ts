@@ -176,20 +176,21 @@ export async function resolveOutsideGrant(
   const target = outsideReadPath(absPath, process.platform === "win32");
   if (!target) return null;
   const key = comparable(target);
+  const owned = [...(grants.get(workspaceId)?.values() ?? [])];
+  const byFile = owned.some((grant) => grant.files.has(key));
+  const dirs = owned.flatMap((grant) => grant.dirs.filter((dir) => isUnderDir(key, dir)));
+  if (!byFile && dirs.length === 0) return null;
   let real: string;
   try {
     real = await fs.promises.realpath(target);
   } catch {
     return null;
   }
-  for (const grant of grants.get(workspaceId)?.values() ?? []) {
-    if (grant.files.has(key)) return real;
-    for (const dir of grant.dirs) {
-      if (!isUnderDir(key, dir)) continue;
-      try {
-        if (isUnderDir(comparable(real), comparable(await fs.promises.realpath(dir)))) return real;
-      } catch {}
-    }
+  if (byFile) return real;
+  for (const dir of dirs) {
+    try {
+      if (isUnderDir(comparable(real), comparable(await fs.promises.realpath(dir)))) return real;
+    } catch {}
   }
   return null;
 }

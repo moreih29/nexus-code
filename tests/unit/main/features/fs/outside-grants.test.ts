@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -80,6 +80,24 @@ describe("outside grants", () => {
     );
     expect(await resolveOutsideGrant("ws", path.join(site, "absent.css"))).toBeNull();
     expect(await resolveOutsideGrant("ws", secret)).toBeNull();
+  });
+
+  test("a path no grant names never reaches the disk", async () => {
+    const realpath = spyOn(fs.promises, "realpath");
+    try {
+      setOutsideGrant("ws", "tab", [path.join(site, "index.html")], [site]);
+      expect(await resolveOutsideGrant("ws", secret)).toBeNull();
+      expect(await resolveOutsideGrant("ws-2", path.join(site, "style.css"))).toBeNull();
+      expect(await resolveOutsideGrant("ws", path.join(tmp, "sitemap.xml"))).toBeNull();
+      expect(realpath).not.toHaveBeenCalled();
+
+      expect(await resolveOutsideGrant("ws", path.join(site, "index.html"))).toBe(
+        path.join(site, "index.html"),
+      );
+      expect(realpath.mock.calls).toEqual([[path.join(site, "index.html").replace(/\\/g, "/")]]);
+    } finally {
+      realpath.mockRestore();
+    }
   });
 
   test.if(process.platform === "win32")(
