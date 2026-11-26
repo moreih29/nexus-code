@@ -151,6 +151,25 @@ export function namesNetworkPath(asked: string, ...cleaned: string[]): boolean {
   return readForms(asked, cleaned).some((p) => isNetworkOrDevicePath(p) || isAutoMountPath(p));
 }
 
+const FIRMLINKED = ["system", "volumes", "data"];
+
+export function networkRootOf(p: string): string | null {
+  if (windowsPathKind(p) === "unc") {
+    const share = /^\\\\([^\\]+)\\([^\\]+)/.exec(path.win32.normalize(p));
+    return share ? asciiLower(`\\\\${share[1]}\\${share[2]}`) : null;
+  }
+  if (!isAutoMountPath(p)) return null;
+  const parts = path.posix
+    .normalize(p)
+    .split("/")
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+  const top = FIRMLINKED.every((part, i) => parts[i] === part) ? FIRMLINKED.length : 0;
+  const depth = parts[top] === "network" && parts[top + 1] === "servers" ? 3 : 2;
+  const root = parts.slice(top, top + depth);
+  return root.length === depth ? `/${root.join("/")}` : null;
+}
+
 function refuseNetworkRead(asked: string, absolute?: string, done = "read"): void {
   if (namesNetworkPath(asked, ...(absolute === undefined ? [] : [absolute]))) {
     throw forbidden(`${asked} is a network or device path: it is not ${done} from another device`);
