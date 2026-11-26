@@ -1,10 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Session } from "electron";
-import { createLogger } from "../../../shared/log/main";
 import { PREVIEW_SCHEME } from "../../../shared/preview/document-url";
-
-const logger = createLogger("app-csp");
 
 const BASE_DIRECTIVES: Readonly<Record<string, readonly string[]>> = {
   "default-src": ["'self'"],
@@ -120,22 +116,4 @@ export function appPageUrlPatterns(page: AppPage): string[] {
 
 export function cspHeaderName(reportOnly: boolean): string {
   return reportOnly ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy";
-}
-
-export function installAppCsp(session: Session, page: AppPage, reportOnly = false): void {
-  const policy = appContentSecurityPolicy(page.devServerUrl);
-  const header = cspHeaderName(reportOnly);
-  if (reportOnly) logger.warn(`The app window's policy only reports: ${policy}`);
-  session.webRequest.onHeadersReceived({ urls: appPageUrlPatterns(page) }, (details, callback) => {
-    if (details.resourceType !== "mainFrame" || !isAppPageUrl(details.url, page)) {
-      callback({});
-      return;
-    }
-    const responseHeaders = { ...details.responseHeaders };
-    for (const name of Object.keys(responseHeaders)) {
-      if (name.toLowerCase().startsWith("content-security-policy")) delete responseHeaders[name];
-    }
-    responseHeaders[header] = [policy];
-    callback({ responseHeaders });
-  });
 }

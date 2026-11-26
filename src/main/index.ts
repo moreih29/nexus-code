@@ -122,7 +122,6 @@ import {
   createMainWindow,
   updateTitleBarOverlays,
 } from "./features/window";
-import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
@@ -518,12 +517,11 @@ app.whenReady().then(async () => {
     }),
   );
   installAppSessionPermissions(session.defaultSession);
-  installAppCsp(
+  installAppRequestGuard(
     session.defaultSession,
     appPage(),
     !app.isPackaged && process.env.NEXUS_CSP_REPORT_ONLY === "1",
   );
-  installAppRequestGuard(session.defaultSession, path.dirname(appPage().indexPath));
   startDesktopNotifications();
 
   if (isMac()) {
