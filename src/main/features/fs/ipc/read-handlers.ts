@@ -16,6 +16,7 @@ import { type FsIpcErrorResult, fsCallError } from "../../../infra/ipc-router/fs
 import type { WorkspaceManager } from "../../workspace/manager";
 import type { FsProvider } from "../bridge/provider";
 import {
+  fileOnRootShare,
   isOutsideGranted,
   isWindowsNetworkPath,
   pickedNetworkFile,
@@ -172,7 +173,8 @@ export function readExternalHandler(
       return { kind: "missing", reason: "not-found" };
     }
     const path = isWindowsNetworkPath(absolutePath)
-      ? pickedNetworkFile(absolutePath)
+      ? (pickedNetworkFile(absolutePath) ??
+        fileOnRootShare(absolutePath, localRootOf(manager, workspaceId)))
       : absolutePath;
     if (path === undefined) return { kind: "missing", reason: "not-found" };
     const fs = await manager.getFs(workspaceId);

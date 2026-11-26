@@ -333,6 +333,64 @@ describe("fs read handlers — provider delegation", () => {
     expect(readAbsolute.mock.calls).toEqual([[String.raw`D:\out\a.txt`], ["D:/out/a.txt"]]);
   });
 
+  it.if(WINDOWS)(
+    "reads files outside a share workspace's root on the same share only",
+    async () => {
+      const { provider, readAbsolute, readAbsoluteRange } = makeRangeProvider();
+      const { manager, getFs } = makeManager(provider, {
+        kind: "local",
+        rootPath: "//nas/Share/repo/pkg",
+      });
+      const read = readExternalHandler(manager as never);
+      const exists = outsideExistsHandler(manager as never);
+      const missing = { kind: "missing", reason: "not-found" };
+      for (const absolutePath of [
+        "//nas2/Share/repo/a.txt",
+        "//nas/other/repo/a.txt",
+        "//nas.local/Share/repo/a.txt",
+        "//nas./Share/repo/a.txt",
+        String.raw`\??\UNC\nas\Share\repo\a.txt`,
+        String.raw`\\?\UNC\nas\Share\repo\a.txt`,
+        "/??/UNC/nas/Share/repo/a.txt",
+        String.raw`\\.\UNC\nas\Share\repo\a.txt`,
+      ]) {
+        expect(await read({ workspaceId: WORKSPACE_ID, absolutePath })).toEqual(missing);
+      }
+      expect(getFs).not.toHaveBeenCalled();
+      expect(readAbsolute).not.toHaveBeenCalled();
+
+      expect(
+        await read({
+          workspaceId: WORKSPACE_ID,
+          absolutePath: "//NAS/share/repo/node_modules/x/index.d.ts",
+        }),
+      ).toMatchObject({ kind: "ok" });
+      expect(
+        await read({ workspaceId: WORKSPACE_ID, absolutePath: "//nas/Share/repo/../../top.txt" }),
+      ).toMatchObject({ kind: "ok" });
+      expect(readAbsolute.mock.calls).toEqual([
+        [String.raw`\\NAS\share\repo\node_modules\x\index.d.ts`],
+        [String.raw`\\nas\Share\top.txt`],
+      ]);
+      expect(
+        await exists({ workspaceId: WORKSPACE_ID, absolutePath: "//nas/Share/repo/a.txt" }),
+      ).toBe(false);
+      expect(readAbsoluteRange).not.toHaveBeenCalled();
+    },
+  );
+
+  it.if(WINDOWS)("reads no share file for a drive workspace", async () => {
+    const { provider, readAbsolute } = makeProvider();
+    const { manager } = makeManager(provider);
+    expect(
+      await readExternalHandler(manager as never)({
+        workspaceId: WORKSPACE_ID,
+        absolutePath: "//nas/Share/repo/a.txt",
+      }),
+    ).toEqual({ kind: "missing", reason: "not-found" });
+    expect(readAbsolute).not.toHaveBeenCalled();
+  });
+
   it.if(WINDOWS)("still takes POSIX paths outside a remote workspace", async () => {
     const { provider, readAbsolute } = makeRangeProvider({ kind: "ssh" });
     const { manager } = makeManager(provider, { kind: "ssh", remotePath: "/home/u/w" });

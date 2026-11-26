@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { isDevicePath, isDrivePath, isNetworkOrDevicePath } from "../../../shared/fs/outside-url";
+import {
+  isDevicePath,
+  isDrivePath,
+  isNetworkOrDevicePath,
+  windowsPathKind,
+} from "../../../shared/fs/outside-url";
 
 interface Grant {
   readonly files: ReadonlySet<string>;
@@ -22,6 +27,20 @@ export function rememberPickedNetworkFile(file: string): void {
 
 export function pickedNetworkFile(file: string): string | undefined {
   return pickedNetworkFiles.get(path.win32.normalize(file).toLowerCase());
+}
+
+function shareOf(p: string): string | null {
+  if (windowsPathKind(p) !== "unc") return null;
+  const share = /^\\\\([^\\]+)\\([^\\]+)(?:\\|$)/.exec(path.win32.normalize(p));
+  return share ? `\\\\${share[1]}\\${share[2]}`.toLowerCase() : null;
+}
+
+export function fileOnRootShare(file: string, root: string | null): string | undefined {
+  if (process.platform !== "win32" || !root) return undefined;
+  const share = shareOf(root);
+  if (!share || shareOf(file) !== share) return undefined;
+  const clean = path.win32.normalize(file);
+  return shareOf(clean) === share ? clean : undefined;
 }
 
 export function cleanAbsolutePath(p: string): string | null {
