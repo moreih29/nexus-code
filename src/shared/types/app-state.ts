@@ -199,6 +199,8 @@ export const AppStateSchema = z.object({
 
   remoteTerminalControl: z.boolean().default(false),
 
+  remoteLegacyOutsideFiles: z.boolean().default(true),
+
   remoteAgents: RemoteAgentsPolicySchema.default("ask"),
   phonePush: PhonePushPolicySchema.default("away"),
 

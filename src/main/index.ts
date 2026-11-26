@@ -689,6 +689,7 @@ app.whenReady().then(async () => {
       get: () => stateService.getState().remoteTerminalControl ?? false,
       set: (allowed) => stateService.setState({ remoteTerminalControl: allowed }),
     },
+    legacyOutsideFiles: () => stateService.getState().remoteLegacyOutsideFiles ?? true,
     agents: {
       get: () => stateService.getState().remoteAgents ?? "ask",
       set: (policy) => stateService.setState({ remoteAgents: policy }),

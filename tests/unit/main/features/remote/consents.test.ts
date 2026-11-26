@@ -220,6 +220,24 @@ describe("the consent prompts another device is told", () => {
     } as unknown as CliServices;
     expect(await remoteConsents(services, both)).toEqual([]);
   });
+
+  test("a file read of a network path says so, with the host dialog's check", async () => {
+    const { services } = setup([
+      pendingOf("unc", { change: { kind: "fileRead", detail: "\\\\host\\share\\a.txt" } }),
+      pendingOf("slash", { change: { kind: "fileReadTree", detail: "//host/share/dir" } }),
+      pendingOf("net", { change: { kind: "fileRead", detail: "/net/host/a.txt" } }),
+      pendingOf("local", { change: { kind: "fileRead", detail: "/Users/me/a.txt" } }),
+      pendingOf("write", { change: { kind: "fileWrite", detail: "/net/host/a.txt" } }),
+    ]);
+    const listed = await remoteConsents(services, both);
+    expect(listed.map((c) => c.change.pathKind)).toEqual([
+      "network",
+      "network",
+      "network",
+      undefined,
+      undefined,
+    ]);
+  });
 });
 
 describe("answering one from another device", () => {

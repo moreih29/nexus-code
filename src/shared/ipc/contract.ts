@@ -2506,6 +2506,10 @@ const remoteContracts = {
         z.void(),
       ),
       chatWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
+      chatSourcesChanged: call(
+        z.object({ workspaceId: z.string().min(1), tabId: z.string().min(1) }),
+        z.void(),
+      ),
       terminalChanged: call(
         z.object({
           watchId: z.string(),

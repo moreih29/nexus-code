@@ -156,3 +156,39 @@ describe.if(WINDOWS)(
     });
   },
 );
+
+describe.if(!WINDOWS)("a local outside file a chat links", () => {
+  test("is not looked at when a link on the way leads to an automount path", async () => {
+    const linked = path.join(tmp, "share");
+    fs.symlinkSync(tmp, linked);
+    const readlink = spyOn(fs.promises, "readlink").mockImplementation((async (p: string) =>
+      p === linked ? "/net/qa-s3" : "") as never);
+    const { manager, reads } = stubs();
+    reads.readAbsoluteRange.mockImplementation((async () => ({
+      kind: "ok",
+      base64: "",
+      sizeBytes: 0,
+      mtime: "",
+    })) as never);
+    try {
+      expect(
+        await outsideExistsHandler(manager)({
+          workspaceId: WS,
+          absolutePath: path.join(linked, "granted.txt"),
+        }),
+      ).toBe(false);
+      expect(reads.readAbsoluteRange).not.toHaveBeenCalled();
+      readlink.mockRestore();
+      expect(
+        await outsideExistsHandler(manager)({
+          workspaceId: WS,
+          absolutePath: path.join(linked, "granted.txt"),
+        }),
+      ).toBe(true);
+      expect(reads.readAbsoluteRange).toHaveBeenCalledTimes(1);
+    } finally {
+      readlink.mockRestore();
+      fs.rmSync(linked);
+    }
+  });
+});

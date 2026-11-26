@@ -1339,6 +1339,13 @@ describe("what this device serves", () => {
     }
   });
 
+  test("file grants with its files and chats, however the user set the rest", () => {
+    for (const set of [servesWith(false), servesWith(true, true, true, true)]) {
+      expect(set).toEqual(expect.arrayContaining(["files", "chat.read", "files.grants"]));
+    }
+    expect(servesWith(true, true, true, true, false)).not.toContain("files.grants");
+  });
+
   test("a peek at a chat with reading it, however the user set the rest", () => {
     for (const set of [servesWith(false), servesWith(true, true, true, true, false)]) {
       expect(set).toContain("chat.read");
