@@ -1334,6 +1334,8 @@
         "context": "Context {{percent}}%"
       }
     },
+    "more_files_one": "{{name}} · {{count}} more file",
+    "more_files_other": "{{name}} · {{count}} more files",
     "look": {
       "aria": "Quick look: {{name}}",
       "image": "Image {{number}}",

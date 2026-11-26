@@ -89,7 +89,11 @@ export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
   };
   return {
     opensAttached: env.opensAttached,
-    openFile(target) {
+    openFile(target, gallery) {
+      if (gallery) {
+        env.look({ files: gallery, index: gallery.indexOf(target) });
+        return;
+      }
       follow(target, ({ path, ...line }) => {
         grant(path);
         if (showHeldLocalFile(workspaceId, path, line)) env.look(null);

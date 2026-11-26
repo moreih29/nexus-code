@@ -28,7 +28,7 @@ import {
 } from "../ui/context-menu";
 
 export interface ChatLinks {
-  openFile: (target: string) => void;
+  openFile: (target: string, gallery?: string[]) => void;
   openImages: (images: readonly ImageBlock[], index: number) => void;
   opensAttached?: (target: string) => boolean;
   openChange: (path: string) => void;

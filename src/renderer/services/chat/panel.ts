@@ -685,7 +685,6 @@ export interface AnswerExtras {
 }
 
 export const MAX_ANSWER_FILES = 8;
-const MAX_ANSWER_CANDIDATES = 2 * MAX_ANSWER_FILES;
 export const MAX_ANSWER_IMAGES = 4;
 
 export function answerExtras(
@@ -750,11 +749,9 @@ export function answerExtras(
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
-      const picked = files.slice(0, MAX_ANSWER_CANDIDATES);
-      const others = Object.entries(elsewhere).filter(([path]) => picked.includes(path));
       out.set(answer, {
-        files: picked,
-        ...(others.length > 0 ? { elsewhere: Object.fromEntries(others) } : {}),
+        files,
+        ...(Object.keys(elsewhere).length > 0 ? { elsewhere } : {}),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }

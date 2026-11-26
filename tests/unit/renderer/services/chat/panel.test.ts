@@ -523,6 +523,16 @@ describe("chat panel", () => {
     ]);
   });
 
+  test("keeps files beyond the former candidate limit for quick look", () => {
+    seq = 0;
+    const files = Array.from({ length: 19 }, (_, i) => `qa-${i + 1}.png`);
+    const model = applyLines(emptyModel(), [
+      assistant("m", [{ type: "text", text: files.map((file) => `[${file}](${file})`).join(" ") }]),
+    ]);
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(extras?.files).toEqual(files.map((file) => `/p/${file}`));
+  });
+
   test("an image file read again shows once, and one the answer links is left to its card", () => {
     seq = 0;
     const read = (id: string, path: string, data: string): ChatLine[] => [

@@ -98,7 +98,12 @@ export function useRemoteLinks(
         ...(line ? { at: { path, line, ...(column ? { column } : {}) } } : {}),
       });
     };
-    const openFile = (written: string) => {
+    const openFile = (written: string, gallery?: string[]) => {
+      if (gallery) {
+        opened++;
+        setLook({ files: gallery, index: gallery.indexOf(written) });
+        return;
+      }
       const places = linkPlaces(written, linkPlaceIndex(latest.current.model.tools, cwd));
       void findLinkPlace(places, (paths) => files.there(paths)).then(
         (link) => link && showFile(link),

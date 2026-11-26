@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useChatFiles, useFilePicture } from "../../services/chat/chat-files";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { imageSrc } from "../../services/chat/image-look";
@@ -26,12 +27,12 @@ export function AnswerExtrasView({
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp);
   const files = useMemo(() => {
-    const shown: string[] = [];
+    const shown = new Set<string>();
     for (const path of extras.files) {
       const at = found.has(path) ? path : extras.elsewhere?.[path]?.find((p) => found.has(p));
-      if (at && !shown.includes(at)) shown.push(at);
+      if (at) shown.add(at);
     }
-    return shown.slice(0, MAX_ANSWER_FILES);
+    return [...shown];
   }, [extras, found]);
   const images = useMemo(() => extras.images.map(({ image }) => image), [extras]);
   if (extras.images.length === 0 && files.length === 0) return null;
@@ -53,8 +54,18 @@ export function AnswerExtrasView({
       )}
       {files.length > 0 && (
         <div className="flex flex-wrap items-start gap-1.5">
-          {files.map((path) => (
-            <FileCard key={path} path={path} workspaceId={workspaceId} cwd={cwd} />
+          {files.slice(0, MAX_ANSWER_FILES).map((path, index) => (
+            <FileCard
+              key={path}
+              path={path}
+              workspaceId={workspaceId}
+              cwd={cwd}
+              gallery={
+                index === MAX_ANSWER_FILES - 1 && files.length > MAX_ANSWER_FILES
+                  ? files
+                  : undefined
+              }
+            />
           ))}
         </div>
       )}
@@ -66,11 +77,14 @@ export function FileCard({
   path,
   workspaceId,
   cwd,
+  gallery,
 }: {
   path: string;
   workspaceId: string;
   cwd: string;
+  gallery?: string[];
 }) {
+  const { t } = useTranslation();
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
   const isImage = fileKind(path) === "image";
@@ -84,19 +98,40 @@ export function FileCard({
         ? file.url
         : null;
   const folder = folderOf(path, cwd);
+  const more = gallery ? gallery.length - MAX_ANSWER_FILES : 0;
   return (
     <LinkMenu target={path} kind="file">
       <button
         type="button"
-        onClick={() => links?.openFile(path)}
+        onClick={() => links?.openFile(path, gallery)}
         title={path}
+        aria-label={
+          more > 0 ? t("chat.more_files", { name: baseName(path), count: more }) : undefined
+        }
         className="flex max-w-64 min-w-0 flex-col overflow-hidden rounded-(--radius-control) border border-border text-left hover:bg-[var(--state-hover-bg)]"
         data-testid="chat-file-card"
       >
-        {src && <img src={src} alt="" className="h-28 w-48 bg-muted object-cover" />}
+        {src && (
+          <span className="relative">
+            <img src={src} alt="" className="h-28 w-48 bg-muted object-cover" />
+            {more > 0 && (
+              <span
+                aria-hidden
+                className="absolute inset-0 grid place-items-center bg-black/60 text-lg font-semibold text-white"
+              >
+                +{more}
+              </span>
+            )}
+          </span>
+        )}
         <span className="flex min-w-0 items-center gap-1.5 px-2 py-1">
           <FileKindIcon path={path} className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate text-app-ui-sm">{baseName(path)}</span>
+          {!src && more > 0 && (
+            <span aria-hidden className="shrink-0 rounded bg-muted px-1 font-semibold tabular-nums">
+              +{more}
+            </span>
+          )}
           {folder && (
             <span className="min-w-0 shrink-[4] truncate text-app-micro text-muted-foreground">
               {folder}
