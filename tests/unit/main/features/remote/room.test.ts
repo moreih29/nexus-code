@@ -27,6 +27,7 @@ import { dropPeerHolds } from "../../../../../src/main/features/remote/peer-hold
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
   MAX_MESSAGE_BYTES,
+  PEER_GONE_GRACE_MS,
   RemoteRoom,
   type RemoteRoomDeps,
   RpcFailure,
@@ -699,15 +700,55 @@ describe("a request that waits on the serving device's user", () => {
     expect(String(serving[0]?.signal?.reason?.message)).toContain("left the room");
   });
 
-  test("the serving device left the room: the requester stops waiting", async () => {
+  test("departure ends both timed and untimed requests after the grace period", async () => {
     const { a, b } = await pair();
-    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
-    await settle();
-    a.room.stop();
-    await expect(asked).rejects.toMatchObject({
-      code: RpcErrorCode.Unavailable,
-      message: "that device is not in the room",
-    });
+    jest.useFakeTimers();
+    try {
+      const failed = jest.fn();
+      const requests = [10_000, Number.POSITIVE_INFINITY].map((timeout) =>
+        b.room.request("a", "sessions.list", {}, timeout).catch(failed),
+      );
+      await settle();
+      a.room.stop();
+      jest.advanceTimersByTime(PEER_GONE_GRACE_MS - 1);
+      await settle();
+      expect(failed).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      await Promise.all(requests);
+      expect(failed).toHaveBeenCalledTimes(2);
+      expect(failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: RpcErrorCode.Unavailable,
+          message: "that device is not in the room",
+        }),
+      );
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("a peer returning during the grace period never receives an outstanding request again", async () => {
+    const { a, b, serving } = await pair();
+    try {
+      const reading = b.room.request("a", "sessions.list", {}, 10_000).catch((error) => error);
+      await settle();
+      expect(serving).toHaveLength(1);
+      a.room.stop();
+      a.room.start();
+      await settle();
+      expect(await reading).toMatchObject({ code: RpcErrorCode.Unavailable });
+      expect(serving).toHaveLength(1);
+      const newRead = b.room.request("a", "sessions.list", {}, 10_000);
+      await settle();
+      expect(serving).toHaveLength(2);
+      serving[1]?.release();
+      expect((await newRead).workspaces).toEqual([]);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
   });
 });
 
@@ -1180,16 +1221,17 @@ describe("what the relay keeps and sends again", () => {
     }
   });
 
-  test("a read rejected by the relay while a peer is between sockets resumes on its hello", async () => {
+  test("a read queued at departure stays off the peer's next connection", async () => {
     const { a, b } = await pair();
-    const reading = b.room.request("a", "sessions.list", {}, 1_000);
+    const reading = b.room.request("a", "sessions.list", {}, 10_000).catch((error) => error);
     a.room.stop();
     await flushRelay();
     try {
       expect(a.served).toHaveLength(0);
       a.room.start();
-      expect((await reading).workspaces).toHaveLength(1);
-      expect(a.served).toHaveLength(1);
+      expect(await reading).toMatchObject({ code: RpcErrorCode.Unavailable });
+      await flushRelay();
+      expect(a.served).toHaveLength(0);
     } finally {
       a.room.stop();
       b.room.stop();

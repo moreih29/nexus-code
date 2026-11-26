@@ -75,6 +75,7 @@ const HELLO_WAIT_MS = 3_000;
 const WARNING_INTERVAL_MS = 30_000;
 const RECENT_REPLY_LIMIT = 200;
 const PEER_PROBE_MS = 5_000;
+export const PEER_GONE_GRACE_MS = 5_000;
 const MAX_PROBE_PEERS = 3;
 
 type RoomWarning =
@@ -317,12 +318,13 @@ export class RemoteRoom {
   private greeted = false;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  private readonly gone = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly serving = new Map<string, Serving>();
   private epoch = newEpoch();
   private conn: SenderConnection = { boot: newEpoch(), n: 1 };
   private readonly heard = new Map<
     string,
-    { epoch: string; seq: number; conn?: SenderConnection }
+    { epoch: string; seq: number; conn?: SenderConnection; departed?: true }
   >();
   private readonly past = new Set<string>();
   private outbox = this.makeOutbox();
@@ -384,7 +386,7 @@ export class RemoteRoom {
   }
 
   private interruptRequest(p: Pending, why: string, reason?: RetryReason): void {
-    if (reason && !p.retried && RETRYABLE_READS.has(p.message.method)) {
+    if (reason && !this.gone.has(p.to) && !p.retried && RETRYABLE_READS.has(p.message.method)) {
       if (p.attempt) {
         delete p.attempt;
         p.retryReason = reason;
@@ -440,7 +442,8 @@ export class RemoteRoom {
     if (!fitsInFrame(message)) {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`);
     }
-    const knownEpoch = this.heard.get(to)?.epoch;
+    const heard = this.heard.get(to);
+    const knownEpoch = heard?.departed ? undefined : heard?.epoch;
     const here = this.status === "online";
     const peer = here ? knownEpoch : undefined;
     const online = this.peers.get(to)?.online;
@@ -455,7 +458,7 @@ export class RemoteRoom {
         method === "chat.send" ? { outcome: "rejected" } : undefined,
       );
     }
-    if (here && (online === false || (!peer && !online))) {
+    if (here && online !== true) {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
         "that device is not in the room",
@@ -505,11 +508,25 @@ export class RemoteRoom {
     );
   }
 
-  private interruptUntimed(peer: string): void {
+  private peerLeft(peer: string): void {
+    const heard = this.heard.get(peer);
+    if (heard) heard.departed = true;
+    this.helloRetryAt.delete(peer);
     for (const p of this.pending.values()) {
-      if (p.to === peer && !Number.isFinite(p.deadline)) {
+      if (p.to === peer) clearTimeout(p.helloTimer);
+    }
+    this.gone.set(
+      peer,
+      setTimeout(() => this.finishPeerDeparture(peer), PEER_GONE_GRACE_MS),
+    );
+  }
+
+  private finishPeerDeparture(peer: string): void {
+    clearTimeout(this.gone.get(peer));
+    this.gone.delete(peer);
+    for (const p of this.pending.values()) {
+      if (p.to === peer)
         this.rejectPending(p, this.interrupted(p, "that device is not in the room"));
-      }
     }
   }
 
@@ -553,7 +570,7 @@ export class RemoteRoom {
       "request-timeout",
       `Remote request timed out method=${method} peer=${shortId(to)} elapsedMs=${Math.round(performance.now() - started)}`,
     );
-    if (attempt?.seq !== undefined) {
+    if (attempt?.seq !== undefined && !this.gone.has(to)) {
       this.retryHello(to, this.heard.get(to)?.epoch ?? attempt.peer);
       this.probePeerPath(to);
     }
@@ -591,14 +608,14 @@ export class RemoteRoom {
         method === "files.read"
           ? FramePriority.Request
           : this.bulkPriority(method, FramePriority.Request),
-      wanted: () => current() && performance.now() < p.deadline,
+      wanted: () => current() && !this.gone.has(to) && performance.now() < p.deadline,
       onSending: (seq) => {
         attempt.seq = seq;
         if (retryReason) this.logRetry(p, retryReason);
       },
     }).then(
       (seq) => {
-        if (seq !== null || !current()) return;
+        if (seq !== null || !current() || this.gone.has(to)) return;
         if (performance.now() >= p.deadline) {
           this.timeoutRequest(p);
           return;
@@ -622,6 +639,7 @@ export class RemoteRoom {
   }
 
   private resumeRequests(from: string, epoch: string): void {
+    if (this.gone.has(from)) return;
     for (const p of this.pending.values()) {
       if (p.to === from && !p.attempt) this.sendRequest(p, epoch);
     }
@@ -728,6 +746,8 @@ export class RemoteRoom {
   }
 
   private resetQueues(): void {
+    for (const timer of this.gone.values()) clearTimeout(timer);
+    this.gone.clear();
     this.inbox = { tail: Promise.resolve(), pending: 0 };
     this.outbox.close();
     this.outbox = this.makeOutbox();
@@ -856,8 +876,11 @@ export class RemoteRoom {
       for (const peer of this.peers.values()) {
         if (peer.online && !next.get(peer.id)?.online) {
           this.disconnected(peer.id);
-          this.interruptUntimed(peer.id);
+          this.peerLeft(peer.id);
         }
+      }
+      for (const id of this.gone.keys()) {
+        if (next.get(id)?.online) this.finishPeerDeparture(id);
       }
       const previous = this.peers;
       this.peers = next;
@@ -913,7 +936,12 @@ export class RemoteRoom {
 
     for (const p of this.pending.values()) {
       if (p.attempt?.seq !== seq) continue;
-      if (code === "no-such-device" && !p.retried && RETRYABLE_READS.has(p.message.method)) {
+      if (
+        code === "no-such-device" &&
+        !this.gone.has(p.to) &&
+        !p.retried &&
+        RETRYABLE_READS.has(p.message.method)
+      ) {
         this.interruptRequest(p, "that device is not in the room", "peer-unavailable");
         this.retryHello(p.to);
         return;
@@ -983,7 +1011,7 @@ export class RemoteRoom {
       if (olderConnection(conn, heard?.conn)) return false;
       if (heard) this.past.add(`${from}|${heard.epoch}`);
     }
-    this.heard.set(from, { epoch, seq, ...(conn ? { conn } : {}) });
+    this.heard.set(from, { ...heard, epoch, seq, conn });
     if (this.past.size > MAX_PAST_EPOCHS) {
       this.renew("the room started over");
       void this.post(ALL_DEVICES, null, this.hello(true));
@@ -1036,7 +1064,11 @@ export class RemoteRoom {
       });
       this.changed();
       if (message.reply) void this.post(from, epoch, this.hello(false));
-      if (this.peers.get(from)?.online === true) this.resumeRequests(from, epoch);
+      if (peer.online && !this.gone.has(from)) {
+        const heard = this.heard.get(from);
+        if (heard) delete heard.departed;
+        this.resumeRequests(from, epoch);
+      }
       return;
     }
     if ("method" in message && "id" in message) {
