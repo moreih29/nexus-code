@@ -60,6 +60,7 @@ import {
   installNexusWorkspaceProtocol,
   type PeerFileReader,
 } from "./features/custom-protocols/nexus-workspace";
+import { PreviewScopes } from "./features/custom-protocols/preview-scopes";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
@@ -185,6 +186,7 @@ registerPickedAttachmentHandler(ipcMain);
 registerAppSchemes();
 
 const previewDocuments = new PreviewDocuments();
+const previewScopes = new PreviewScopes(os.homedir());
 
 if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
@@ -459,7 +461,7 @@ registerSystemChannel({
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
-registerPreviewChannel(previewDocuments);
+registerPreviewChannel(previewDocuments, previewScopes, os.homedir());
 
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
@@ -535,7 +537,7 @@ app.whenReady().then(async () => {
 
   await workspaceManager.init();
 
-  installNexusWorkspaceProtocol(workspaceManager, () => remote?.peerFiles ?? null);
+  installNexusWorkspaceProtocol(workspaceManager, () => remote?.peerFiles ?? null, previewScopes);
   installNexusPreviewProtocol(previewDocuments);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PANE_FRAME_FOCUS_EVENT } from "@/utils/pane-activation";
-import { isWithinWorkspace, relativeTo } from "@/utils/path";
 import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
 import { ipcCallResult } from "../../../ipc/client";
 import {
@@ -10,25 +9,22 @@ import {
   MAX_FIND_MATCHES,
 } from "../../../services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
-import { buildPreviewDocument } from "../../../services/editor/preview/html-document";
+import {
+  buildPreviewDocument,
+  previewSafeHtml,
+} from "../../../services/editor/preview/html-document";
 import {
   PreviewDocumentLoader,
   type PreviewDocumentStore,
   type PreviewFrame,
 } from "../../../services/editor/preview/preview-document-loader";
-import {
-  buildOutsideDirUrl,
-  buildWorkspaceDirUrl,
-} from "../../../services/editor/preview/workspace-url";
-import { peerOf } from "../../../services/remote/peer-workspace";
-import { useOutsideDirGranted } from "../../../state/stores/outside-grants";
 import { type FindResult, usePreviewFindBar, usePreviewFinder } from "./preview-find";
 
 interface HtmlPreviewProps {
   source: string;
   workspaceId: string;
   currentFileAbsPath: string;
-  workspaceRootAbsPath: string;
+  thumb?: { title: string; className: string; style: React.CSSProperties };
 }
 
 const HTML_PREVIEW_PREAMBLE = `<style>
@@ -48,6 +44,15 @@ const HTML_PREVIEW_PREAMBLE = `<style>
 </style>
 <script>
 (function () {
+  ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel'].forEach(function (name) {
+    try {
+      Object.defineProperty(window, name, { value: undefined, writable: false, configurable: false });
+    } catch (_) {}
+  });
+})();
+</script>
+<script>
+(function () {
   // Moving between previews can leave the parent window blurred throughout.
   window.addEventListener('focus', function () {
     parent.postMessage({ nexusHtmlPreview: 'focus' }, '*');
@@ -65,37 +70,52 @@ const HTML_PREVIEW_PREAMBLE = `<style>
     };
   } catch (_) {}
 
+  function linkHref(a) {
+    var href = a.getAttribute('href');
+    if (href === null) href = a.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+    return href;
+  }
+  function inPage(name) {
+    var names = [name];
+    try {
+      var decoded = decodeURIComponent(name);
+      if (decoded !== name) names.unshift(decoded);
+    } catch (_) {}
+    for (var i = 0; i < names.length; i++) {
+      var found = null;
+      try { found = document.getElementById(names[i]); } catch (_) {}
+      if (!found) {
+        var named = document.getElementsByName(names[i]);
+        for (var j = 0; j < named.length && !found; j++) {
+          if (named[j].localName === 'a') found = named[j];
+        }
+      }
+      if (found) return found;
+    }
+    return null;
+  }
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || typeof t.closest !== 'function') return;
-    var a = t.closest('a');
+    var a = t.closest('a, area');
     if (!a) return;
-    var href = a.getAttribute('href');
+    var href = linkHref(a);
     if (!href) return;
-    // In-page anchor — scroll inside the iframe document directly. We do
-    // NOT fall through to native hash navigation: the <base> we inject
-    // resolves "#id" against the file's folder on nexus-workspace://, so
-    // the frame would leave the document for that address. Calling
-    // scrollIntoView keeps the document stable.
     if (href.charAt(0) === '#') {
       e.preventDefault();
       var id = href.slice(1);
       if (!id) return;
-      var target = null;
-      try { target = document.getElementById(id); } catch (_) {}
-      if (!target) {
-        try { target = document.querySelector('a[name="' + id + '"]'); } catch (_) {}
-      }
+      var target = inPage(id);
       if (target && typeof target.scrollIntoView === 'function') {
         target.scrollIntoView({ behavior: 'auto', block: 'start' });
       }
       return;
     }
-    // Everything else: the host opens it (the sandbox has no allow-popups),
-    // resolved against the document's base. main's setWindowOpenHandler
-    // applies the http/https/mailto allowlist.
     e.preventDefault();
-    try { parent.postMessage({ nexusHtmlPreview: 'open', href: a.href }, '*'); } catch (_) {}
+    try {
+      var resolved = new URL(href, document.baseURI).href;
+      parent.postMessage({ nexusHtmlPreview: 'open', href: resolved }, '*');
+    } catch (_) {}
   }, true);
 
   // Scroll persistence. While a restore is pending we keep re-applying it as
@@ -218,30 +238,47 @@ function buildScrollMeta(scroll: ScrollPosition | undefined): string {
   return `<meta name="nexus-preview-scroll" content="${x},${y}">`;
 }
 
-function buildBaseTag(
-  workspaceId: string,
-  currentFileAbsPath: string,
-  workspaceRootAbsPath: string,
-  outsideDirGranted = false,
-): string {
-  const slash = currentFileAbsPath.lastIndexOf("/");
-  const dirAbs = slash === -1 ? currentFileAbsPath : currentFileAbsPath.slice(0, slash);
-  if (!isWithinWorkspace(currentFileAbsPath, workspaceRootAbsPath)) {
-    return outsideDirGranted ? `<base href="${buildOutsideDirUrl(workspaceId, dirAbs)}">` : "";
-  }
-  const baseHref = peerOf(workspaceId)
-    ? buildOutsideDirUrl(workspaceId, dirAbs)
-    : buildWorkspaceDirUrl(workspaceId, relativeTo(dirAbs, workspaceRootAbsPath));
-  return `<base href="${baseHref}">`;
+interface PreviewScope {
+  scope: string;
+  base: string;
+}
+
+function buildBaseTag(scope: PreviewScope | null): string {
+  return scope ? `<base href="${scope.base}">` : "";
+}
+
+function usePreviewScope(workspaceId: string, dir: string): PreviewScope | null | undefined {
+  const [held, setHeld] = useState<{ key: string; scope: PreviewScope | null } | null>(null);
+  const key = `${workspaceId}\0${dir}`;
+  useEffect(() => {
+    let live = true;
+    void ipcCallResult("preview", "openScope", { workspaceId, dir })
+      .then((result) => (result.ok ? result.value : null))
+      .catch(() => null)
+      .then((scope) => {
+        if (live) setHeld({ key, scope });
+      });
+    return () => {
+      live = false;
+    };
+  }, [workspaceId, dir, key]);
+  return held?.key === key ? held.scope : undefined;
 }
 
 function injectPreamble(source: string, baseTag: string, scrollMeta: string): string {
-  return buildPreviewDocument(source, baseTag + scrollMeta + HTML_PREVIEW_PREAMBLE);
+  return buildPreviewDocument(
+    previewSafeHtml(source),
+    baseTag + scrollMeta + HTML_PREVIEW_PREAMBLE,
+  );
 }
 
 const previewDocumentStore: PreviewDocumentStore = {
-  async put(html, token) {
-    const result = await ipcCallResult("preview", "putHtml", { token, html });
+  async put(html, token, scope) {
+    const result = await ipcCallResult("preview", "putHtml", {
+      token,
+      html,
+      ...(scope ? { scope } : {}),
+    });
     return result.ok ? result.value : null;
   },
   release(token) {
@@ -258,23 +295,11 @@ function iframeFrame(el: HTMLIFrameElement): PreviewFrame {
   };
 }
 
-export function HtmlPreview({
-  source,
-  workspaceId,
-  currentFileAbsPath,
-  workspaceRootAbsPath,
-}: HtmlPreviewProps) {
+export function HtmlPreview({ source, workspaceId, currentFileAbsPath, thumb }: HtmlPreviewProps) {
   const { t } = useTranslation();
-  const outsideDirGranted = useOutsideDirGranted(
-    workspaceId,
-    currentFileAbsPath.slice(0, currentFileAbsPath.lastIndexOf("/")),
-  );
-  const baseTag = buildBaseTag(
-    workspaceId,
-    currentFileAbsPath,
-    workspaceRootAbsPath,
-    outsideDirGranted || peerOf(workspaceId) !== null,
-  );
+  const slash = Math.max(currentFileAbsPath.lastIndexOf("/"), currentFileAbsPath.lastIndexOf("\\"));
+  const scope = usePreviewScope(workspaceId, currentFileAbsPath.slice(0, Math.max(slash, 0)));
+  const baseTag = buildBaseTag(scope ?? null);
   const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const findBar = usePreviewFindBar();
@@ -373,15 +398,17 @@ export function HtmlPreview({
   }, []);
 
   const assignedRef = useRef<{ source: string; baseTag: string } | null>(null);
+  const scopeId = scope?.scope;
   useEffect(() => {
     const el = iframeRef.current;
-    if (!el) return;
+    if (!el || scope === undefined) return;
     const assigned = assignedRef.current;
     if (assigned && assigned.source === source && assigned.baseTag === baseTag) return;
     const assign = () => {
       assignedRef.current = { source, baseTag };
       void loaderRef.current?.load(
         injectPreamble(source, baseTag, buildScrollMeta(scrollByFile.get(scrollKey))),
+        scopeId,
       );
     };
     if (assigned === null) {
@@ -390,13 +417,30 @@ export function HtmlPreview({
     }
     const timer = setTimeout(assign, RELOAD_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [source, baseTag, scrollKey]);
+  }, [source, baseTag, scrollKey, scope, scopeId]);
+
+  if (thumb) {
+    return (
+      <iframe
+        ref={iframeRef}
+        sandbox="allow-scripts"
+        allow=""
+        referrerPolicy="no-referrer"
+        title={thumb.title}
+        aria-hidden
+        tabIndex={-1}
+        className={thumb.className}
+        style={thumb.style}
+        data-testid="chat-artifact-thumb"
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <iframe
         ref={iframeRef}
-        sandbox="allow-scripts allow-forms allow-modals"
+        sandbox="allow-scripts"
         allow=""
         referrerPolicy="no-referrer"
         title={t("preview.html_title")}

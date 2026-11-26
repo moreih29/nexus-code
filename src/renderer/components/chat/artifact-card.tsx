@@ -12,6 +12,7 @@ import { lookupPath } from "../../services/chat/file-presence";
 import { readWorkspaceRange } from "../../services/editor/preview/read-range";
 import { peerOf } from "../../services/remote/peer-workspace";
 import { cn } from "../../utils/cn";
+import { HtmlPreview } from "../editor/preview/html-preview";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { useCopied } from "../ui/copy-button";
 import { useChatLinks } from "./chat-links";
@@ -20,9 +21,41 @@ const HEAD_BYTES = 8 * 1024;
 const TITLE_TRIES = 4;
 const TITLE_RETRY_MS = 700;
 
-async function readHead(workspaceId: string, relPath: string): Promise<string | null> {
-  const part = await readWorkspaceRange(workspaceId, relPath, 0, HEAD_BYTES).catch(() => null);
+const THUMB_BYTES = 512 * 1024;
+
+async function readHead(
+  workspaceId: string,
+  relPath: string,
+  bytes = HEAD_BYTES,
+): Promise<string | null> {
+  const part = await readWorkspaceRange(workspaceId, relPath, 0, bytes).catch(() => null);
   return part ? new TextDecoder().decode(part.bytes) : null;
+}
+
+function readPathOf(workspaceId: string, file: string, rootPath: string): string | null {
+  if (peerOf(workspaceId)) return file;
+  return lookupPath(file, rootPath) ?? (isAbsoluteOutsidePath(file) ? file : null);
+}
+
+function useThumbSource(
+  workspaceId: string,
+  file: string,
+  rootPath: string,
+  wanted: boolean,
+): string | null {
+  const [source, setSource] = useState<{ file: string; text: string } | null>(null);
+  useEffect(() => {
+    const relPath = wanted ? readPathOf(workspaceId, file, rootPath) : null;
+    if (relPath === null) return;
+    let gone = false;
+    void readHead(workspaceId, relPath, THUMB_BYTES).then((text) => {
+      if (!gone && text !== null) setSource({ file, text });
+    });
+    return () => {
+      gone = true;
+    };
+  }, [workspaceId, file, rootPath, wanted]);
+  return source?.file === file ? source.text : null;
 }
 
 export function useArtifactName(page: ArtifactPage, workspaceId: string, rootPath: string): string {
@@ -31,9 +64,7 @@ export function useArtifactName(page: ArtifactPage, workspaceId: string, rootPat
   useEffect(() => {
     setTitle(null);
     if (!wanted) return;
-    const relPath = peerOf(workspaceId)
-      ? page.file
-      : (lookupPath(page.file, rootPath) ?? (isAbsoluteOutsidePath(page.file) ? page.file : null));
+    const relPath = readPathOf(workspaceId, page.file, rootPath);
     if (relPath === null) return;
     let gone = false;
     let tries = 0;
@@ -59,12 +90,16 @@ function ArtifactThumb({
   page,
   name,
   workspaceId,
+  rootPath,
 }: {
   page: ArtifactPage;
   name: string;
   workspaceId: string;
+  rootPath: string;
 }) {
   const file = useWorkspaceFile(workspaceId, page.file);
+  const shows = isHtmlPage(page) && file.kind === "inside";
+  const source = useThumbSource(workspaceId, page.file, rootPath, shows);
   return (
     <span
       className="relative block shrink-0 overflow-hidden rounded-(--radius-control) border border-border bg-muted"
@@ -73,22 +108,20 @@ function ArtifactThumb({
         height: THUMB_PAGE.height * THUMB_PAGE.scale,
       }}
     >
-      {isHtmlPage(page) && file.kind === "inside" ? (
-        <iframe
-          src={file.url}
-          title={name}
-          aria-hidden
-          tabIndex={-1}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          loading="lazy"
-          className="pointer-events-none absolute top-0 left-0 origin-top-left border-0"
-          style={{
-            width: THUMB_PAGE.width,
-            height: THUMB_PAGE.height,
-            transform: `scale(${THUMB_PAGE.scale})`,
+      {shows && source !== null ? (
+        <HtmlPreview
+          source={source}
+          workspaceId={workspaceId}
+          currentFileAbsPath={page.file}
+          thumb={{
+            title: name,
+            className: "pointer-events-none absolute top-0 left-0 origin-top-left border-0",
+            style: {
+              width: THUMB_PAGE.width,
+              height: THUMB_PAGE.height,
+              transform: `scale(${THUMB_PAGE.scale})`,
+            },
           }}
-          data-testid="chat-artifact-thumb"
         />
       ) : (
         <AppWindow className="absolute inset-0 m-auto size-6 text-muted-foreground" />
@@ -153,7 +186,7 @@ export function ArtifactCard({
         aria-label={t("chat.artifact.preview")}
         className="shrink-0 self-start rounded-(--radius-control) hover:opacity-90"
       >
-        <ArtifactThumb page={page} name={name} workspaceId={workspaceId} />
+        <ArtifactThumb page={page} name={name} workspaceId={workspaceId} rootPath={rootPath} />
       </button>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-1.5">
