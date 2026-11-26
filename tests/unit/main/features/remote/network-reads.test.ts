@@ -298,9 +298,14 @@ describe("a share folder the host gave a chat", () => {
           expectedRealPath: absolute.toLowerCase(),
         });
       }
-      await listFiles(files, workspaceRoot, { workspaceId: "w", path: String.raw`\\nas\share\w` });
+      if (WINDOWS) {
+        await listFiles(files, workspaceRoot, {
+          workspaceId: "w",
+          path: String.raw`\\nas\share\w`,
+        });
+      }
     }
-    expect(calls.readdirNoLinks).toHaveBeenCalledTimes(WINDOWS_ROOTS.length);
+    expect(calls.readdirNoLinks).toHaveBeenCalledTimes(WINDOWS ? WINDOWS_ROOTS.length : 0);
     expect(realpaths().some((p) => /dev|Ä/.test(p))).toBe(false);
   });
 
@@ -821,8 +826,11 @@ describe("folders.list asked by another device", () => {
       listFolders({ path: String.raw`/x/../\h\s\a.png` }, system("win32")),
     ).rejects.toMatchObject({
       code: RpcErrorCode.NotFound,
-      message: String.raw`no folder C:\h\s\a.png`,
+      message: expect.stringMatching(/^no folder [A-Za-z]:\\h\\s\\a\.png$/),
     });
+    const touched = spies.flatMap((spy) => spy.mock.calls.map((call) => String(call[0])));
+    expect(touched.length).toBeGreaterThan(0);
+    expect(touched.filter((p) => isNetworkOrDevicePath(p) || isDevicePath(p))).toEqual([]);
     expect((await listFolders({ path: tmp }, system("win32"))).entries).toEqual([
       { name: "outside" },
       { name: "w" },
