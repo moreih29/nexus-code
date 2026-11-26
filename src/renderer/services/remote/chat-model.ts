@@ -119,6 +119,7 @@ function toolOf(tool: ChatPage["tools"][string]): ToolCall {
       ? {
           result: {
             text: result.truncated ? `${result.text}…` : result.text,
+            ...(result.truncated ? { truncated: true } : {}),
             isError: result.isError,
             ...(result.structured !== undefined ? { structured: result.structured } : {}),
             images,

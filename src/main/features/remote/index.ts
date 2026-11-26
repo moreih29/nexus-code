@@ -733,9 +733,17 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatStopTask.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.stopTask", params));
       },
-      peerChatImage: (args: unknown) => {
+      peerChatTool: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatTool.args, args);
+        return askPeer(() =>
+          inRoom().request(deviceId, "chat.tool", params, undefined, ctx?.signal),
+        );
+      },
+      peerChatImage: (args: unknown, ctx?: CallContext) => {
         const { deviceId, ...params } = validateArgs(c.peerChatImage.args, args);
-        return askPeer(() => inRoom().request(deviceId, "chat.image", params));
+        return askPeer(() =>
+          inRoom().request(deviceId, "chat.image", params, undefined, ctx?.signal),
+        );
       },
       ...peerReadCalls(inRoom, askPeer),
       peerFilesRead: (args: unknown, ctx?: CallContext) => {

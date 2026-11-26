@@ -979,7 +979,10 @@
         "failed_other": "{{count}} failed",
         "denied_one": "{{count}} denied",
         "denied_other": "{{count}} denied"
-      }
+      },
+      "output_expand": "View full output",
+      "output_collapse": "Collapse output",
+      "output_failed": "Couldn't load the tool output. Try again."
     },
     "permission": {
       "aria": "Permission request",

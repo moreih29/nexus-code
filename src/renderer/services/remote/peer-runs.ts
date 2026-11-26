@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChatPage, ChatRun } from "../../../../packages/remote-protocol/src";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
-import type { ChatModel } from "../chat/model";
-import type { AgentRow } from "../chat/panel";
+import { conversationLook, imageLook, shownIndex } from "../chat/image-look";
+import type { ChatModel, ImageBlock } from "../chat/model";
+import { type AgentRow, imagesOf } from "../chat/panel";
 import { keepEarlier, modelOfPage, withEarlier } from "./chat-model";
 import type { PeerChatRef } from "./peer-mcp";
 
@@ -12,6 +13,35 @@ export const RUNS_IDLE_MS = 10_000;
 export const RUN_LIVE_MS = 1500;
 export const RUN_READ_LIVE_MS = 3000;
 export const RUN_READ_SLOW_MS = 15_000;
+
+export async function readPeerRunTool(
+  target: PeerChatRef & { runId: string },
+  toolUseId: string,
+  signal: AbortSignal,
+) {
+  const reply = await ipcCallResult("remote", "peerChatTool", { ...target, toolUseId }, { signal });
+  if (!reply.ok) throw new Error(reply.message);
+  const result = reply.value.result;
+  if (!result) throw new Error("no tool output in that run");
+  return result;
+}
+
+export function runImageLook(
+  model: ChatModel | undefined,
+  cwd: string,
+  images: readonly ImageBlock[],
+  index: number,
+) {
+  const image = images[index];
+  if (model && image) {
+    const gallery = imagesOf(model.items, model.tools, cwd, model.agentItems).filter(
+      (entry) => entry.image !== undefined,
+    );
+    const at = shownIndex(gallery, { image });
+    if (at >= 0) return conversationLook(gallery, at, () => false);
+  }
+  return imageLook(images, index);
+}
 
 const RUN_KEY_PREFIX = "print:";
 

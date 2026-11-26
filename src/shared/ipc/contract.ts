@@ -2306,6 +2306,13 @@ const remoteContracts = {
           .merge(RPC_METHODS["chat.instructions.set"].params.omit({ from: true })),
         RPC_METHODS["chat.instructions.set"].result,
       ),
+      peerChatTool: call(
+        RPC_METHODS["chat.tool"].params.omit({ from: true, cli: true }).extend({
+          deviceId: z.string().min(1).max(64),
+          runId: z.string().max(200),
+        }),
+        RPC_METHODS["chat.tool"].result,
+      ),
       peerChatImage: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })

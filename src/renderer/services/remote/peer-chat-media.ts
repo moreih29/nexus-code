@@ -200,7 +200,7 @@ const presence = peerReads<boolean>({
 
 function mediaAccess(
   access: PeerAccess | null,
-  target: readonly string[],
+  target: readonly (string | null)[],
   read: ReadAccess | null,
 ): ChatMediaAccess | null {
   return (
@@ -212,11 +212,11 @@ function mediaAccess(
 }
 
 export function peerImageLoader(
-  target: { deviceId: string; workspaceId: string; tabId: string },
+  target: { deviceId: string; workspaceId: string; tabId: string; runId?: string },
   access: PeerAccess | null,
   visible = true,
 ): ImageLoader {
-  const site = [target.deviceId, target.workspaceId, target.tabId];
+  const site = [target.deviceId, target.workspaceId, target.tabId, target.runId ?? null];
   const current = visible ? (access?.read ?? null) : null;
   const key = (ref: RemoteImageRef) => JSON.stringify([...site, IMAGE_EDGE, remoteImageKey(ref)]);
   return Object.assign(

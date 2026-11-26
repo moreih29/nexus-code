@@ -979,7 +979,10 @@
         "failed_other": "{{count}}개 실패",
         "denied_one": "{{count}}개 거부됨",
         "denied_other": "{{count}}개 거부됨"
-      }
+      },
+      "output_expand": "전체 출력 보기",
+      "output_collapse": "출력 접기",
+      "output_failed": "도구 출력을 불러올 수 없습니다. 다시 시도하세요."
     },
     "permission": {
       "aria": "권한 요청",
