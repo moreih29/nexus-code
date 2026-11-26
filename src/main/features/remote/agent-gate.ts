@@ -243,9 +243,10 @@ export class AgentGate {
 }
 
 function namesNetworkScope(params: AgentRequest["params"], scope: FileConsent): boolean {
+  if (params.anywhere !== true) return false;
   return (
     namesNetworkPath(scope.path) ||
-    (params.anywhere === true && typeof params.path === "string" && namesNetworkPath(params.path))
+    (typeof params.path === "string" && namesNetworkPath(params.path))
   );
 }
 
