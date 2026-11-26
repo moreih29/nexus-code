@@ -126,6 +126,7 @@ function serving({
 }
 
 const answer = { kind: "answer", itemKey: "a1" };
+const user = { kind: "user", itemKey: "u1" };
 
 describe("files.resolve on the host", () => {
   test("tells each link's file, whether it reads without a grant, and blocks network paths unread", async () => {
@@ -246,6 +247,37 @@ describe("files.grant and a read with its token", () => {
     });
   });
 
+  test("resolves a workspace attachment and keeps the existing outside attachment grant behavior", async () => {
+    const inside = path.join(root, "in.txt");
+    const copied = path.join(outside, "a.txt");
+    const rejected = path.join(outside, "b.txt");
+    const paths = new Map([
+      ["in.txt", [inside]],
+      [copied, [copied]],
+    ]);
+    const candidates: Candidates = (links) => links.map(({ href }) => paths.get(href) ?? null);
+    const { ask, grants, workspaceId } = serving({ candidates });
+    expect(
+      await ask("files.resolve", {
+        tabId: "c1",
+        links: ["in.txt", rejected, copied].map((href) => ({ href, source: user })),
+      }),
+    ).toEqual({
+      found: [{ path: inside, readable: true }, null, { path: copied, readable: false }],
+    });
+    expect(await grantFor(ask, "in.txt", user)).toEqual({ path: inside });
+    await expect(grantFor(ask, rejected, user)).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
+    expect(grants.sourcesOf(workspaceId, "c1")).toEqual([]);
+    const copyGrant = await grantFor(ask, copied, user);
+    expect(copyGrant.path).toBe(copied);
+    expect(copyGrant.grant).toHaveLength(43);
+
+    const standing = serving({ candidates, standing: [copied] });
+    expect(await grantFor(standing.ask, copied, user)).toEqual({ path: copied });
+  });
+
   test("an older device still reads a file a chat names while the flag is on, and not once it is off", async () => {
     const target = path.join(outside, "a.txt");
     const on = serving({ mentioned: [target] });
@@ -361,10 +393,12 @@ describe("a link inside the workspace that leads out of it", () => {
     const links = [
       { href, source: answer },
       { href, source: { kind: "file", parent } },
+      { href, source: user },
       { href: missing, source: answer },
     ];
     expect(await ask("files.resolve", { tabId: "c1", links })).toEqual({
       found: [
+        { path: target, readable: false },
         { path: target, readable: false },
         { path: target, readable: false },
         { path: path.join(rootPath, missing), readable: false },

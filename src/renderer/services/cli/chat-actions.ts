@@ -12,6 +12,7 @@ import {
 } from "../../../shared/chat/instructions";
 import type { CliChatInfo, CliChatSettings, CliLimitResume, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
+import { isUnder } from "../../../shared/fs/relative-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { LimitResume } from "../../../shared/types/layout";
 import { toolSummary } from "../../components/chat/tool-row";
@@ -879,9 +880,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (tab?.type !== "claude" && tab?.type !== "codex") {
       throw new UiRequestError("that tab is not a Claude or Codex tab");
     }
+    const root = workspaceRoot(workspaceId);
     const attachRoot = await attachRootOf(workspaceId);
-    const attached = (file: string) =>
-      attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null;
+    const allowsAttachment = (file: string) =>
+      isUnder(file, root) ||
+      (attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null);
     const sources = new Map<string | undefined, Promise<ChatSource | null>>();
     const sourceFor = (runId: string | undefined) => {
       const known = sources.get(runId) ?? readSourceOf(workspaceId, tabId, runId).catch(() => null);
@@ -891,7 +894,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const candidates: (string[] | null)[] = [];
     for (const { href, source } of links) {
       const chat = await sourceFor(source.runId);
-      candidates.push(chat && linkCandidates(chat, tab.props.cwd, href, source, attached));
+      candidates.push(chat && linkCandidates(chat, tab.props.cwd, href, source, allowsAttachment));
     }
     return { candidates };
   },
