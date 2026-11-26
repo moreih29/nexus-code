@@ -12,7 +12,13 @@ export async function readWorkspaceBinary(
   workspaceId: string,
   relPath: string,
   signal?: AbortSignal,
+  draft?: File,
 ): Promise<BinaryRead> {
+  if (draft) {
+    if (draft.size > MAX_READABLE_FILE_SIZE) return { kind: "too_large" };
+    const bytes = new Uint8Array(await draft.arrayBuffer());
+    return signal?.aborted ? { kind: "failed" } : { kind: "ok", bytes };
+  }
   const peer = peerOf(workspaceId);
   if (peer) return readPeerBinary(peer, relPath, signal);
   const stat = await ipcCallResult("fs", "stat", { workspaceId, relPath });

@@ -4,7 +4,7 @@ import { type ClaudeTab, type CodexTab, useTabsStore } from "../../state/stores/
 import { registerWorkspaceCleanup } from "../../state/workspace-cleanup";
 import { attachRootOf, attachSlotOf } from "./attach-folders";
 import type { ChatItem, ChatModel } from "./model";
-import { attachedFilesOf } from "./panel";
+import { attachedFilesIn } from "./panel";
 import { chatKey, useChatStore } from "./store";
 
 const log = createLogger("attach-retention");
@@ -37,22 +37,6 @@ function rootOf(workspaceId: string): Promise<string | null> {
   });
   roots.set(workspaceId, { at: Date.now(), root });
   return root;
-}
-
-const filesByItem = new WeakMap<ChatItem, string[]>();
-
-export function attachedFilesIn(items: readonly ChatItem[], cwd: string): string[] {
-  const files = new Set<string>();
-  for (const item of items) {
-    if (item.kind !== "user") continue;
-    let named = filesByItem.get(item);
-    if (!named) {
-      named = attachedFilesOf(item, cwd);
-      filesByItem.set(item, named);
-    }
-    for (const file of named) files.add(file);
-  }
-  return [...files];
 }
 
 export function slotsOf(files: Iterable<string>, root: string, workspaceId: string): string[] {

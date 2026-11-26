@@ -1,6 +1,6 @@
 import { BINARY_DETECTION_BYTES } from "./defaults";
 
-export function isBinaryProbe(buf: Buffer): boolean {
+export function isBinaryProbe(buf: Uint8Array): boolean {
   const probe = buf.length <= BINARY_DETECTION_BYTES ? buf : buf.slice(0, BINARY_DETECTION_BYTES);
 
   if (

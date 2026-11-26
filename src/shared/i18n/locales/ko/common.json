@@ -1334,6 +1334,8 @@
         "context": "컨텍스트 {{percent}}%"
       }
     },
+    "more_files_one": "{{name}} · 파일 {{count}}개 더 보기",
+    "more_files_other": "{{name}} · 파일 {{count}}개 더 보기",
     "look": {
       "aria": "빠른 보기: {{name}}",
       "image": "이미지 {{number}}",

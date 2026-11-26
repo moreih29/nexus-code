@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READ_BYTES } from "../../../../packages/remote-protocol/src/rpc";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
+import { isBinaryProbe } from "../../../shared/fs/binary-detect";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { FS_ERROR } from "../../../shared/fs/errors";
@@ -14,6 +15,8 @@ import { useChatFiles } from "../../services/chat/chat-files";
 import type { Size } from "../../services/chat/image-look";
 import type { LineAt } from "../../services/chat/links";
 import { useSharedModel } from "../../services/editor";
+import { decodeBytes } from "../../services/editor/encoding/text-encoding";
+import { encodingForBytes } from "../../services/editor/model/file-loader";
 import { isDocxFile } from "../../services/editor/preview/docx";
 import { isFontFile } from "../../services/editor/preview/font";
 import { mediaKindFor } from "../../services/editor/preview/media";
@@ -36,6 +39,7 @@ import { useWorkspace } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { fileErrorMessage } from "../../utils/file-error";
 import { ImagePreview } from "../editor/preview/image-preview";
+import { usePreviewDraft } from "../editor/preview/preview-draft";
 import { PreviewFindScope } from "../editor/preview/preview-find";
 import { PeerPreviewVersion } from "../editor/preview/use-file-version";
 import { ViewModeToggle } from "../editor/preview/view-mode-toggle";
@@ -149,7 +153,8 @@ export function FileLookBody({
   const { t } = useTranslation();
   const peer = peerOf(workspaceId) !== null;
   const chatFiles = useChatFiles();
-  if (peer && !peerFile && chatFiles?.epoch === null) {
+  const draft = usePreviewDraft();
+  if (!draft && peer && !peerFile && chatFiles?.epoch === null) {
     return (
       <EmptyState
         title={
@@ -192,7 +197,7 @@ export function FileLookBody({
       preview={isPreviewable(path) === "supported" && view.mode === "preview"}
       at={at}
       onImageSize={onImageSize}
-      imageRevision={peer ? (chatFiles?.epoch ?? undefined) : undefined}
+      imageRevision={peer && !draft ? (chatFiles?.epoch ?? undefined) : undefined}
     />
   );
 }
@@ -287,7 +292,8 @@ function LookBody({
   at?: LineAt;
   onImageSize?: (size: Size) => void;
 }) {
-  if (isImageFile(path)) {
+  const draft = usePreviewDraft()?.file;
+  if (isImageFile(path) || (draft && /\.svg$/i.test(path))) {
     return (
       <div className="flex h-full">
         <ImagePreview
@@ -323,12 +329,58 @@ function LookBody({
     return <DocxEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />;
   if (isPresentationFile(path))
     return <PptxEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />;
+  if (draft) {
+    return <DraftLookText file={draft} workspaceId={workspaceId} path={path} preview={preview} />;
+  }
   if (peerOf(workspaceId)) {
     return (
       <PeerLookText workspaceId={workspaceId} path={path} preview={preview} root={root} at={at} />
     );
   }
   return <LookText workspaceId={workspaceId} path={path} preview={preview} line={at?.line} />;
+}
+
+function DraftLookText({
+  file,
+  workspaceId,
+  path,
+  preview,
+}: {
+  file: File;
+  workspaceId: string;
+  path: string;
+  preview: boolean;
+}) {
+  const [read, setRead] = useState<PeerText | null>(null);
+  useEffect(() => {
+    if (file.size > MAX_READABLE_FILE_SIZE) {
+      setRead({ kind: "too_large" });
+      return;
+    }
+    let live = true;
+    void file.arrayBuffer().then(
+      (buffer) => {
+        if (!live) return;
+        const bytes = new Uint8Array(buffer);
+        const utf16 =
+          (bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff);
+        setRead(
+          !utf16 && isBinaryProbe(bytes)
+            ? { kind: "binary" }
+            : { kind: "text", text: decodeBytes(bytes, encodingForBytes(bytes)) },
+        );
+      },
+      () => {
+        if (live) setRead({ kind: "failed" });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [file]);
+  return (
+    <PeerTextBody workspaceId={workspaceId} path={path} preview={preview} root="" read={read} />
+  );
 }
 
 function PeerLookText({

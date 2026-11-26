@@ -51,9 +51,7 @@ const { codexThreadItems } = await import(
 const { appendCodexThreadPage, emptyCodexThreadPages } = await import(
   "../../../../../../src/renderer/services/chat/codex/history"
 );
-const { attachedFilesIn } = await import(
-  "../../../../../../src/renderer/services/chat/attach-retention"
-);
+const { attachedFilesIn } = await import("../../../../../../src/renderer/services/chat/panel");
 type Controller = InstanceType<typeof CodexController>;
 
 let seq = 0;

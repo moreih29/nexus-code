@@ -14,7 +14,7 @@ import {
   agentsOf,
   agentTranscript,
   answerExtras,
-  attachedImagesIn,
+  attachedFilesIn,
   attachedImagesOf,
   changedFilesOf,
   changedShareFiles,
@@ -521,6 +521,16 @@ describe("chat panel", () => {
     expect(first.images).toEqual([
       { image: { mediaType: "image/png", data: "AAAA" }, file: "/p/shot.png" },
     ]);
+  });
+
+  test("keeps files beyond the former candidate limit for quick look", () => {
+    seq = 0;
+    const files = Array.from({ length: 19 }, (_, i) => `qa-${i + 1}.png`);
+    const model = applyLines(emptyModel(), [
+      assistant("m", [{ type: "text", text: files.map((file) => `[${file}](${file})`).join(" ") }]),
+    ]);
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(extras?.files).toEqual(files.map((file) => `/p/${file}`));
   });
 
   test("an image file read again shows once, and one the answer links is left to its card", () => {
@@ -1118,7 +1128,7 @@ describe("images the user attached to a message", () => {
     const removed = "/h/.nexus-code/attach/w1/old/1/removed.png";
     const items = [turn(["r1"]), user(`@${removed}`), user(`see\n\n@${kept}`), turn(["r2"])];
     const shown = imagesOf(items, tools, "/ws");
-    expect(attachedImagesIn(items, "/ws")).toEqual([removed, kept]);
+    expect(attachedFilesIn(items, "/ws")).toEqual([removed, kept]);
     const asked: string[][] = [];
     const look = await lookAtImage(
       shown,
@@ -1150,14 +1160,19 @@ describe("images the user attached to a message", () => {
     expect(shown).toEqual([{ file: "/tmp/a/big.png" }]);
   });
 
-  test("are granted to the previews, and only they: not other attachments or others' messages", () => {
+  test("grants files from the user's attachment trailer individually", () => {
     const items = [
-      user("@/tmp/a/big.png @/tmp/a/notes.txt"),
+      user("@/tmp/a/big.png @/tmp/a/notes.txt @/tmp/a/report.html"),
+      user("@/tmp/a/folder/"),
+      user("read @/tmp/a/inline.md"),
       user("@/ws/inside.png"),
       relayed("look\n\n@/tmp/x.png"),
-      relayed("@/etc/a.png"),
+      relayed("@/etc/a.pdf"),
     ];
-    expect(outsideLinksOf(items, {}, "/ws", "/ws").files).toEqual(["/tmp/a/big.png"]);
+    expect(outsideLinksOf(items, {}, "/ws", "/ws")).toEqual({
+      files: ["/tmp/a/big.png", "/tmp/a/notes.txt", "/tmp/a/report.html"],
+      dirs: [],
+    });
   });
 
   test("are granted, where another device reads them, only as `attached` lets them", () => {

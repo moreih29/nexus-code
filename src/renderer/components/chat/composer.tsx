@@ -43,7 +43,6 @@ import {
 } from "../../services/chat/composer-input";
 import { canRestoreFailedDraft, composerSendDecision } from "../../services/chat/composer-submit";
 import { watchFileDrop } from "../../services/chat/file-drop";
-import { fileKind } from "../../services/chat/links";
 import {
   type CommandInfo,
   type ImageBlock,
@@ -75,6 +74,7 @@ import { IconButton } from "../ui/icon-button";
 import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
+import { ChatImage } from "./chat-image";
 import { useChatLinks } from "./chat-links";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { COMPOSER_CHIP_CLASS } from "./composer-chip";
@@ -816,15 +816,15 @@ export const Composer = memo(function Composer({
           )}
           {(images.length > 0 || files.length > 0 || notes.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2 pt-2">
-              {images.map((image, i) => (
+              {images.map((_, i) => (
                 <div
                   // biome-ignore lint/suspicious/noArrayIndexKey: attachments keep their order
                   key={i}
                   className="group/img relative"
                 >
-                  <img
-                    src={`data:${image.mediaType};base64,${image.data}`}
-                    alt=""
+                  <ChatImage
+                    images={images}
+                    index={i}
                     className="size-14 rounded-(--radius-control) border border-border object-cover"
                   />
                   <button
@@ -1066,16 +1066,12 @@ function AttachmentLabel({ file }: { file: File }) {
       </div>
     </>
   );
-  if (!links || fileKind(file.name) !== "image") return body;
-  const look = () =>
-    void base64Of(file).then((data) =>
-      links.openImages([{ mediaType: file.type || "image/png", data }], 0),
-    );
+  if (!links) return body;
   return (
     <button
       type="button"
-      onClick={look}
-      aria-label={`${t("chat.links.look")}: ${file.name}`}
+      onClick={() => links.openFile(file.name, { draft: file })}
+      aria-label={`${t("chat.links.look")} · ${file.name}`}
       className="flex min-w-0 flex-1 cursor-zoom-in items-center gap-1.5 rounded-(--radius-control) text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       data-testid="chat-attachment-look"
     >

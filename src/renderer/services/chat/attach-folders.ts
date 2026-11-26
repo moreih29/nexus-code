@@ -39,6 +39,6 @@ export function attachedOpens(
 ): (written: string) => boolean {
   return (written) => {
     const file = resolveFilePath(written, cwd);
-    return file === null || !gone.has(file);
+    return file !== null && !gone.has(file);
   };
 }

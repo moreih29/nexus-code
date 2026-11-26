@@ -1,7 +1,7 @@
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { isUnder, isWindowsPath, slashWindowsPath } from "../../../shared/fs/relative-path";
-import { splitAttachments } from "./composer-input";
+import { attachmentTarget, isFolder, splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
 import { fileKind, resolveFilePath } from "./links";
@@ -510,22 +510,28 @@ export function distinctResults(
   return out;
 }
 
+const filesByItem = new WeakMap<UserItem, { cwd: string; files: string[] }>();
+
 export function attachedFilesOf(item: UserItem, cwd: string): string[] {
   if (item.optimistic || item.text.startsWith(RELAY_MARK)) return [];
-  return splitAttachments(item.text).files.flatMap((named) => {
-    const path = resolveFilePath(named, cwd);
+  const known = filesByItem.get(item);
+  if (known?.cwd === cwd) return known.files;
+  const files = splitAttachments(item.text).files.flatMap((named) => {
+    const path = isFolder(named) ? null : resolveFilePath(attachmentTarget(named), cwd);
     return path ? [path] : [];
   });
+  filesByItem.set(item, { cwd, files });
+  return files;
 }
 
 export function attachedImagesOf(item: UserItem, cwd: string): string[] {
   return attachedFilesOf(item, cwd).filter((path) => fileKind(path) === "image");
 }
 
-export function attachedImagesIn(items: readonly ChatItem[], cwd: string): string[] {
+export function attachedFilesIn(items: readonly ChatItem[], cwd: string): string[] {
   const files = new Set<string>();
   for (const item of items) {
-    if (item.kind === "user") for (const file of attachedImagesOf(item, cwd)) files.add(file);
+    if (item.kind === "user") for (const file of attachedFilesOf(item, cwd)) files.add(file);
   }
   return [...files];
 }
@@ -685,7 +691,6 @@ export interface AnswerExtras {
 }
 
 export const MAX_ANSWER_FILES = 8;
-const MAX_ANSWER_CANDIDATES = 2 * MAX_ANSWER_FILES;
 export const MAX_ANSWER_IMAGES = 4;
 
 export function answerExtras(
@@ -750,11 +755,9 @@ export function answerExtras(
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
-      const picked = files.slice(0, MAX_ANSWER_CANDIDATES);
-      const others = Object.entries(elsewhere).filter(([path]) => picked.includes(path));
       out.set(answer, {
-        files: picked,
-        ...(others.length > 0 ? { elsewhere: Object.fromEntries(others) } : {}),
+        files,
+        ...(Object.keys(elsewhere).length > 0 ? { elsewhere } : {}),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }
@@ -795,10 +798,6 @@ export function outsideLinksOf(
       if (abs) named.add(abs);
     }
   }
-  for (const item of items) {
-    if (item.kind !== "user") continue;
-    for (const file of attachedImagesOf(item, cwd)) if (attached?.(file) ?? true) named.add(file);
-  }
   const places = linkPlaceIndex(tools, cwd);
   for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {
     if (result.kind !== "file") continue;
@@ -811,7 +810,14 @@ export function outsideLinksOf(
     const dir = file.slice(0, file.lastIndexOf("/"));
     if (dir && !isUnder(root, dir)) dirs.add(dir);
   }
-  return { files: files.slice(-MAX_OUTSIDE_FILES), dirs: [...dirs].slice(-MAX_OUTSIDE_DIRS) };
+  const granted = new Set(files);
+  for (const file of attachedFilesIn(items, cwd)) {
+    if (!isUnder(file, root) && (attached?.(file) ?? true)) granted.add(file);
+  }
+  return {
+    files: [...granted].slice(-MAX_OUTSIDE_FILES),
+    dirs: [...dirs].slice(-MAX_OUTSIDE_DIRS),
+  };
 }
 
 const SHARE_FILE = /^\/\/([^/]+)\/([^/]+)\/(.+)$/;

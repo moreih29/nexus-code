@@ -386,6 +386,25 @@ describe("another computer's chat, read from there", () => {
     expect(calls[0]?.args).toEqual({ deviceId: "d1", workspaceId: "w1", path: "/w/src" });
   });
 
+  test("files omitted from a folder listing can be found by exact path", async () => {
+    const linked = "/outside/qa-linked.png";
+    const unlisted = "/w/qa-unlisted.png";
+    answer = (method, args) => {
+      if (method === "peerFilesList" && args.path === "/w") {
+        return { path: "/w", entries: [], truncated: true };
+      }
+      if (method === "peerFilesRead" && [linked, unlisted].includes(String(args.path))) {
+        return { kind: "bytes", path: args.path, data: "", offset: 0, size: 3 };
+      }
+      throw new Error("unavailable");
+    };
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    expect([...(await files.there([linked, unlisted, "/outside/qa-gone.png"]))]).toEqual([
+      linked,
+      unlisted,
+    ]);
+  });
+
   test("a Windows path is split at its backslashes", async () => {
     answer = () => ({ path: "C:\\w", entries: [{ name: "a.png", kind: "file" }] });
     const files = peerChatFiles(target, peerChatAccess("d1"));
