@@ -2280,6 +2280,20 @@ const remoteContracts = {
           .merge(RPC_METHODS["profiles.list"].params.omit({ from: true })),
         RPC_METHODS["profiles.list"].result,
       ),
+      peerProfilesUsage: call(
+        z.object({ deviceId: z.string().min(1).max(64), refresh: z.boolean().optional() }),
+        RPC_METHODS["profiles.usage"].result,
+      ),
+      peerFoldersList: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["folders.list"].params),
+        RPC_METHODS["folders.list"].result,
+      ),
+      peerWorkspaceCreate: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["workspace.create"].params),
+        RPC_METHODS["workspace.create"].result,
+      ),
       peerChatConfig: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.config"].params),
         RPC_METHODS["chat.config"].result,

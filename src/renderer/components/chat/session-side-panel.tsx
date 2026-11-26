@@ -40,7 +40,7 @@ import {
   resultsOf,
 } from "../../services/chat/panel";
 import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
-import { formatTokens, meterLevel, shownReset } from "../../services/chat/usage-line";
+import { formatTokens } from "../../services/chat/usage-line";
 import { cn } from "../../utils/cn";
 import { usageLineOf } from "../agent-view/remote-usage";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
@@ -55,7 +55,9 @@ import { FileKindIcon } from "./file-kind-icon";
 import { GoalSummary, type TabGoal } from "./goal-bar";
 import { FirstFew, Row, Section } from "./panel-section";
 import { ActivitySections } from "./running-section";
-import { usageMeterLabel } from "./usage-line";
+import { Meter, UsageMeterRow, usageMeterKey } from "./usage-meter-row";
+
+export { Meter } from "./usage-meter-row";
 
 const NO_JOBS: ChatPanel["tasks"] = [];
 
@@ -615,30 +617,11 @@ export function PanelUsage({
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.usage.none")}</div>
       ) : (
         limits.map((limit) => (
-          <div
-            key={`${limit.kind}-${limit.scope ?? ""}-${limit.windowMins ?? ""}`}
-            className="flex flex-col gap-0.5 py-0.5"
-          >
-            <Row className="text-app-micro">
-              <span className="min-w-0 flex-1 truncate">
-                {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
-              </span>
-              <span className="shrink-0 tabular-nums">{Math.round(limit.percent)}%</span>
-            </Row>
-            <Meter percent={Math.min(100, limit.percent)} />
-            {limit.resetsAt !== undefined && (
-              <div className="text-app-micro text-muted-foreground">
-                {t("chat.panel.usage.resets", {
-                  time: shownReset(limit.resetsAt).toLocaleString(i18n.language, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                })}
-              </div>
-            )}
-          </div>
+          <UsageMeterRow
+            key={usageMeterKey(limit)}
+            meter={limit}
+            scoped={(usage?.more.length ?? 0) > 0}
+          />
         ))
       )}
     </Section>
@@ -851,25 +834,6 @@ export function Field({ label, children }: { label: string; children: React.Reac
     <div className="flex min-h-6 items-center gap-2 text-app-ui-sm">
       <span className="w-14 shrink-0 truncate text-muted-foreground">{label}</span>
       <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
-    </div>
-  );
-}
-
-export function Meter({ percent }: { percent: number }) {
-  const level = meterLevel(percent);
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      <div
-        className={cn(
-          "h-full rounded-full",
-          level === "alert"
-            ? "bg-[var(--state-error-fg)]"
-            : level === "warn"
-              ? "bg-[var(--state-warning-fg)]"
-              : "bg-[var(--tab-claude-running-fg)]",
-        )}
-        style={{ width: `${percent}%` }}
-      />
     </div>
   );
 }

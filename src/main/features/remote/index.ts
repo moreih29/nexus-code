@@ -813,6 +813,22 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerProfiles.args, args);
         return askPeer(() => inRoom().request(deviceId, "profiles.list", params));
       },
+      peerProfilesUsage: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, ...params } = validateArgs(c.peerProfilesUsage.args, args);
+        return askPeer(() =>
+          inRoom().request(deviceId, "profiles.usage", params, undefined, ctx?.signal),
+        );
+      },
+      peerFoldersList: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, ...params } = validateArgs(c.peerFoldersList.args, args);
+        return askPeer(() =>
+          inRoom().request(deviceId, "folders.list", params, undefined, ctx?.signal),
+        );
+      },
+      peerWorkspaceCreate: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerWorkspaceCreate.args, args);
+        return askPeer(() => inRoom().request(deviceId, "workspace.create", params));
+      },
       peerChatConfig: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatConfig.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.config", params));
