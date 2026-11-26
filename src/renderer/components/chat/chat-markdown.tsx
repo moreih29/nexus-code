@@ -2,7 +2,7 @@ import i18next from "i18next";
 import { memo, useCallback, useMemo } from "react";
 import { type Components, defaultUrlTransform } from "react-markdown";
 import { isNetworkLink } from "../../../shared/fs/outside-url";
-import { useFoundFiles } from "../../services/chat/file-presence";
+import { isUnknownFile, useFoundFiles } from "../../services/chat/file-presence";
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
@@ -155,7 +155,9 @@ function FileLink({
   children: React.ReactNode;
 }) {
   const found = useFoundFiles(workspaceId, rootPath, places);
-  const path = places.find((place) => found.has(place));
+  const path =
+    places.find((place) => found.has(place)) ??
+    places.find((place) => isUnknownFile(place, rootPath));
   if (!path) return <span title={href}>{children}</span>;
   return (
     <LinkMenu target={path} href={href} kind="file">

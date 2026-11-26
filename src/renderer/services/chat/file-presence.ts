@@ -32,14 +32,28 @@ export function lookupPath(path: string, root: string): string | null {
   return path.length > base.length ? path.slice(base.length + 1) : null;
 }
 
+function outsidePathToLookUp(path: string, root: string): string | null {
+  if (isNetworkOrDevicePath(path)) return null;
+  if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
+  if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
+  return path;
+}
+
 export function pathToLookUp(path: string, root: string): string | null {
   if (isDevicePath(path)) return null;
   const relPath = lookupPath(path, root);
   if (relPath !== null) return relPath;
-  if (isNetworkOrDevicePath(path)) return null;
-  if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
-  if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
-  return isAutoMountPath(path) ? null : path;
+  const outside = outsidePathToLookUp(path, root);
+  return outside !== null && !isAutoMountPath(outside) ? outside : null;
+}
+
+export function isUnknownFile(path: string, root: string): boolean {
+  return (
+    !isDevicePath(path) &&
+    lookupPath(path, root) === null &&
+    outsidePathToLookUp(path, root) !== null &&
+    isAutoMountPath(path)
+  );
 }
 
 export function createFilePresence(
