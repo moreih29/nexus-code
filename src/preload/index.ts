@@ -1,4 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import {
+  isWindowsLongPath,
+  type PickedAttachment,
+  READ_PICKED_ATTACHMENT,
+} from "../shared/fs/picked-attachment";
 import type { IpcStreamStartResult } from "../shared/ipc/result";
 import { OPAQUE_WINDOW_ARG, TRANSPARENT_WINDOW_ARG } from "../shared/window/transparent-window";
 
@@ -100,5 +105,10 @@ contextBridge.exposeInMainWorld("host", {
 contextBridge.exposeInMainWorld("files", {
   getPathForFile(file: File): string {
     return webUtils.getPathForFile(file);
+  },
+  async readPickedAttachment(file: File): Promise<PickedAttachment | null> {
+    if (process.platform !== "win32") return null;
+    const path = webUtils.getPathForFile(file);
+    return isWindowsLongPath(path) ? ipcRenderer.invoke(READ_PICKED_ATTACHMENT, path) : null;
   },
 });

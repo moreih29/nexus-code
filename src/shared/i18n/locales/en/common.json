@@ -1128,6 +1128,7 @@
       "files": "Files",
       "remove_file": "Remove file",
       "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "file_read_failed": "Could not attach {{name}} because the file could not be read.",
       "too_many_attachments": "A message can carry up to {{max}} images and files together.",
       "drop_title": "Drop to attach",
       "drop_hint": "Images and files go with your message",

@@ -1,6 +1,14 @@
 import os from "node:os";
 import path from "node:path";
-import { app, autoUpdater, type BrowserWindow, dialog, powerMonitor, session } from "electron";
+import {
+  app,
+  autoUpdater,
+  type BrowserWindow,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  session,
+} from "electron";
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
@@ -57,6 +65,7 @@ import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { reportWatchFailure } from "./features/fs/bridge/watch-failure-log";
 import { registerFsChannel } from "./features/fs/ipc";
+import { registerPickedAttachmentHandler } from "./features/fs/picked-attachment";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
 import {
@@ -171,6 +180,7 @@ installErrorSafetyNet();
 logChildProcessDeaths(app);
 
 setupRouter();
+registerPickedAttachmentHandler(ipcMain);
 
 registerAppSchemes();
 

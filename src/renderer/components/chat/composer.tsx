@@ -26,6 +26,8 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { RelayedMessage } from "../../../shared/chat/relay";
+import { FS_ERROR } from "../../../shared/fs/errors";
+import { isWindowsLongPath } from "../../../shared/fs/picked-attachment";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { formatBytes } from "../../../shared/util/format-bytes";
 import { useFitStep } from "../../hooks/use-fit-step";
@@ -51,6 +53,7 @@ import {
   type UserItem,
 } from "../../services/chat/model";
 import { modelPickerOf } from "../../services/chat/model-picker";
+import { base64Of, prepareLongPathAttachment } from "../../services/chat/picked-attachment";
 import { withRelayed } from "../../services/chat/relayed";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import type { QueuedMessage } from "../../services/chat/transport/queue";
@@ -59,6 +62,7 @@ import { useChatNotes, useRecentChatNotes } from "../../services/notes/chat-note
 import { type NoteChoice, noteChoices } from "../../services/notes/choices";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
+import { fileErrorMessage } from "../../utils/file-error";
 import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
@@ -150,6 +154,7 @@ export interface ComposerAttachment {
   id: number;
   file: File;
   path?: string;
+  unbufferedSize?: number;
 }
 
 export interface ComposerContents {
@@ -226,6 +231,8 @@ export const Composer = memo(function Composer({
   const [failedDrafts, setFailedDrafts] = useState<{ draft: LocalDraft; id: string }[]>([]);
   const [sending, setSending] = useState(false);
   const submitting = useRef(false);
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  const attachmentReads = useRef(0);
   const latestPeerWait = useRef(peerWaitUntil);
   const waitForPeer = useRef<((shown: boolean) => void) | null>(null);
   useLayoutEffect(() => {
@@ -255,6 +262,7 @@ export const Composer = memo(function Composer({
     !blocked &&
     hasText &&
     !sending &&
+    !readingAttachments &&
     (dictation.phase === "idle" || dictation.phase === "listening");
   const listening = dictation.phase === "starting" || dictation.phase === "listening";
   const hint = placeholder ?? composerHint(t, running, program);
@@ -458,7 +466,7 @@ export const Composer = memo(function Composer({
     const body = dictated ?? pressed.text;
     const notes = chatNotes ? localDraft.current.current.notes : EMPTY_DRAFT.notes;
     const hasBody = body.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
-    if (blocked || submitting.current || !hasBody) return;
+    if (blocked || submitting.current || attachmentReads.current > 0 || !hasBody) return;
     const until = latestPeerWait.current;
     if (composition && until !== undefined) {
       if (Date.now() >= until) return;
@@ -537,23 +545,62 @@ export const Composer = memo(function Composer({
     async (picked: Iterable<File>) => {
       const added: ImageBlock[] = [];
       const attached: ComposerAttachment[] = [];
-      for (const file of picked) {
-        if (IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES) {
-          added.push({ mediaType: file.type, data: await base64Of(file) });
-          continue;
-        }
-        const path = local ? window.files.getPathForFile(file) || undefined : undefined;
-        if (!path && file.size > MAX_ATTACH_BYTES) {
-          showToast({
-            kind: "warning",
-            message: t("chat.composer.file_too_large", { name: file.name }),
-          });
-          continue;
-        }
-        attached.push({ id: nextAttachmentId++, file, path });
+      const windows = window.host.platform === "win32";
+      const sources = Array.from(picked, (file) => ({
+        file,
+        path: local || windows ? window.files.getPathForFile(file) || undefined : undefined,
+      }));
+      const readingLongPaths = windows && sources.some(({ path }) => isWindowsLongPath(path));
+      if (readingLongPaths) {
+        attachmentReads.current += 1;
+        setReadingAttachments(true);
       }
-      if (added.length > 0) setImages((prev) => [...prev, ...added]);
-      if (attached.length > 0) setFiles((prev) => [...prev, ...attached]);
+      try {
+        for (const { file: original, path: pickedPath } of sources) {
+          const path = local ? pickedPath : undefined;
+          const image = IMAGE_TYPES.has(original.type);
+          let file = original;
+          let unbufferedSize: number | undefined;
+          if (windows && isWindowsLongPath(pickedPath)) {
+            try {
+              const prepared = await prepareLongPathAttachment(
+                original,
+                image ? MAX_IMAGE_BYTES : 0,
+                window.files.readPickedAttachment,
+              );
+              if (prepared.image) {
+                added.push({ mediaType: original.type, data: prepared.image });
+                continue;
+              }
+              ({ file, unbufferedSize } = prepared);
+            } catch {
+              showToast({
+                kind: "error",
+                message: t("chat.composer.file_read_failed", { name: original.name }),
+              });
+              continue;
+            }
+          } else if (image && file.size <= MAX_IMAGE_BYTES) {
+            added.push({ mediaType: file.type, data: await base64Of(file) });
+            continue;
+          }
+          if (!path && (unbufferedSize ?? file.size) > MAX_ATTACH_BYTES) {
+            showToast({
+              kind: "warning",
+              message: t("chat.composer.file_too_large", { name: file.name }),
+            });
+            continue;
+          }
+          attached.push({ id: nextAttachmentId++, file, path, unbufferedSize });
+        }
+        if (added.length > 0) setImages((prev) => [...prev, ...added]);
+        if (attached.length > 0) setFiles((prev) => [...prev, ...attached]);
+      } finally {
+        if (readingLongPaths) {
+          attachmentReads.current -= 1;
+          if (attachmentReads.current === 0) setReadingAttachments(false);
+        }
+      }
     },
     [t, local, setImages, setFiles],
   );
@@ -869,7 +916,7 @@ export const Composer = memo(function Composer({
                   title={attachment.path ?? attachment.file.name}
                   data-testid="chat-attachment"
                 >
-                  <AttachmentLabel file={attachment.file} />
+                  <AttachmentLabel attachment={attachment} />
                   <IconButton
                     label={t("chat.composer.remove_file")}
                     size="xs"
@@ -1055,15 +1102,18 @@ function useRevealedMenu(
   return [open, setOpen];
 }
 
-function AttachmentLabel({ file }: { file: File }) {
+function AttachmentLabel({ attachment }: { attachment: ComposerAttachment }) {
   const { t } = useTranslation();
   const links = useChatLinks();
+  const { file, unbufferedSize } = attachment;
   const body = (
     <>
       <FileText className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="truncate">{file.name}</div>
-        <div className="text-app-micro text-muted-foreground">{formatBytes(file.size)}</div>
+        <div className="text-app-micro text-muted-foreground">
+          {formatBytes(unbufferedSize ?? file.size)}
+        </div>
       </div>
     </>
   );
@@ -1071,7 +1121,13 @@ function AttachmentLabel({ file }: { file: File }) {
   return (
     <button
       type="button"
-      onClick={() => links.openFile(file.name, { draft: file })}
+      onClick={() => {
+        if (unbufferedSize !== undefined) {
+          showToast({ kind: "error", message: fileErrorMessage(FS_ERROR.TOO_LARGE) });
+        } else {
+          links.openFile(file.name, { draft: file });
+        }
+      }}
       aria-label={`${t("chat.links.look")} · ${file.name}`}
       className="flex min-w-0 flex-1 cursor-zoom-in items-center gap-1.5 rounded-(--radius-control) text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       data-testid="chat-attachment-look"
@@ -1159,18 +1215,6 @@ function AddMenu({
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );
-}
-
-function base64Of(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      resolve(url.slice(url.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function DropCue() {
