@@ -233,6 +233,7 @@ let keychainChannel: { dispose(): void } | undefined;
 
 let remote: {
   themeChanged(): void;
+  wake(): void;
   consentsChanged(): void;
   forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
@@ -524,7 +525,10 @@ app.whenReady().then(async () => {
     updatesHandle?.startAutoChecks();
     powerMonitor.on("resume", () => updatesHandle?.onResume());
   }
-  powerMonitor.on("resume", () => broadcast("system", "woke", { at: Date.now() }));
+  powerMonitor.on("resume", () => {
+    remote?.wake();
+    broadcast("system", "woke", { at: Date.now() });
+  });
   powerMonitor.on("unlock-screen", () => broadcast("system", "woke", { at: Date.now() }));
 
   void sweepStaleControlDirs();
