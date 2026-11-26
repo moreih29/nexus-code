@@ -6,6 +6,7 @@ import {
   isNetworkOrDevicePath,
   windowsPathKind,
 } from "../../../shared/fs/outside-url";
+import type { AppState } from "../../../shared/types/app-state";
 
 interface Grant {
   readonly files: ReadonlySet<string>;
@@ -13,20 +14,87 @@ interface Grant {
 }
 
 const grants = new Map<string, Map<string, Grant>>();
-const pickedNetworkFiles = new Map<string, string>();
+
+export const MAX_PENDING_PICKS = 64;
+export const MAX_KEPT_PICKS = 256;
+const pendingPicks = new Map<string, string>();
+const keptPicks = new Map<string, string>();
+let savePicks: (files: string[]) => void = () => {};
 
 export function isWindowsNetworkPath(path: string): boolean {
   return process.platform === "win32" && isNetworkOrDevicePath(path);
 }
 
-export function rememberPickedNetworkFile(file: string): void {
-  if (isWindowsNetworkPath(file) && !isDevicePath(file)) {
-    pickedNetworkFiles.set(path.win32.normalize(file).toLowerCase(), file);
+function pickKey(file: string): string | null {
+  if (!isWindowsNetworkPath(file) || isDevicePath(file) || file.includes("\0")) return null;
+  return path.win32.normalize(file).toLowerCase();
+}
+
+function trimOldest(picks: Map<string, string>, max: number): void {
+  for (const key of picks.keys()) {
+    if (picks.size <= max) return;
+    picks.delete(key);
   }
 }
 
+export function rememberPickedNetworkFile(file: string): void {
+  const key = pickKey(file);
+  if (key === null || keptPicks.has(key)) return;
+  pendingPicks.delete(key);
+  pendingPicks.set(key, file);
+  trimOldest(pendingPicks, MAX_PENDING_PICKS);
+}
+
 export function pickedNetworkFile(file: string): string | undefined {
-  return pickedNetworkFiles.get(path.win32.normalize(file).toLowerCase());
+  const key = pickKey(file);
+  return key === null ? undefined : (keptPicks.get(key) ?? pendingPicks.get(key));
+}
+
+export function keepPickedNetworkFilesOpenIn(openFiles: Iterable<string>): void {
+  const open = new Set<string>();
+  for (const file of openFiles) {
+    const key = pickKey(file);
+    if (key !== null) open.add(key);
+  }
+  let changed = false;
+  for (const [key, file] of pendingPicks) {
+    if (!open.has(key)) continue;
+    pendingPicks.delete(key);
+    keptPicks.set(key, file);
+    changed = true;
+  }
+  for (const key of [...keptPicks.keys()]) {
+    if (open.has(key)) continue;
+    keptPicks.delete(key);
+    changed = true;
+  }
+  const size = keptPicks.size;
+  trimOldest(keptPicks, MAX_KEPT_PICKS);
+  if (changed || keptPicks.size !== size) savePicks([...keptPicks.values()]);
+}
+
+export function editorTabFiles(layouts: AppState["layoutByWorkspace"]): string[] {
+  return Object.values(layouts ?? {}).flatMap(({ tabs }) =>
+    tabs.flatMap((tab) => (tab.type === "editor" ? [tab.props.filePath] : [])),
+  );
+}
+
+export function restorePickedNetworkFiles(
+  saved: readonly string[],
+  openFiles: Iterable<string>,
+  save: (files: string[]) => void,
+): void {
+  pendingPicks.clear();
+  keptPicks.clear();
+  savePicks = () => {};
+  for (const file of saved) {
+    const key = pickKey(file);
+    if (key !== null) keptPicks.set(key, file);
+  }
+  const before = keptPicks.size;
+  keepPickedNetworkFilesOpenIn(openFiles);
+  savePicks = save;
+  if (keptPicks.size !== before || before !== saved.length) save([...keptPicks.values()]);
 }
 
 function shareOf(p: string): string | null {

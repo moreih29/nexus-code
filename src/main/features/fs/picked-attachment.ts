@@ -6,8 +6,10 @@ import {
   isWindowsLongPath,
   type PickedAttachment,
   READ_PICKED_ATTACHMENT,
+  REMEMBER_PICKED_FILE,
 } from "../../../shared/fs/picked-attachment";
 import { appWindowOf } from "../window/app-windows";
+import { rememberPickedNetworkFile } from "./outside-grants";
 
 export async function readPickedAttachment(path: string): Promise<PickedAttachment> {
   const file = await open(path, "r");
@@ -63,5 +65,23 @@ export function registerPickedAttachmentHandler(
     } catch {
       return null;
     }
+  });
+}
+
+export function registerPickedFileHandler(
+  ipc: Pick<IpcMain, "on">,
+  isAppWindow = (sender: { readonly id: number }) => appWindowOf(sender) !== null,
+  remember: (path: string) => void = rememberPickedNetworkFile,
+): void {
+  ipc.on(REMEMBER_PICKED_FILE, (event, path: unknown) => {
+    if (
+      typeof path !== "string" ||
+      !isAppWindow(event.sender) ||
+      !event.senderFrame ||
+      event.senderFrame !== event.sender.mainFrame
+    ) {
+      return;
+    }
+    remember(path);
   });
 }

@@ -1328,6 +1328,7 @@ const coreIpcContract = {
             rememberedVoices: true,
             keychainSignature: true,
             cliPreallowedWorkspaces: true,
+            pickedNetworkFiles: true,
           }),
         ).extend({
           instructionEdits: z.array(InstructionEditSchema).optional(),

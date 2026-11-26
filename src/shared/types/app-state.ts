@@ -207,6 +207,8 @@ export const AppStateSchema = z.object({
   cliCrossWorkspace: z.enum(["ask", "allow", "deny"]).default("ask"),
   cliPreallowedWorkspaces: z.array(z.guid()).default([]),
 
+  pickedNetworkFiles: z.array(z.string().max(32_767)).max(256).optional().catch(undefined),
+
   cliAgentContext: z.boolean().default(true),
 
   browserPermissionGrants: z.record(z.string(), z.boolean()).optional(),
