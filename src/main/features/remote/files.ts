@@ -18,6 +18,7 @@ import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
 import type { FsProvider } from "../fs/bridge/provider";
+import { networkLinkOf } from "../fs/link-walk";
 import { asciiLower } from "../fs/outside-grants";
 import { validFileName } from "./file-io";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
@@ -229,7 +230,18 @@ export async function outsideFileSource(asked: string): Promise<string> {
   return realOf(absoluteFilePath(asked), asked);
 }
 
-function realOf(absolute: string, asked: string): Promise<string> {
+export async function refuseNetworkLink(absolute: string, asked: string): Promise<void> {
+  if (namesNetworkPath(asked, absolute)) return;
+  const hop = await networkLinkOf(absolute).catch(() => {
+    throw forbidden(`${asked} goes through too many links`);
+  });
+  if (hop !== null) {
+    throw forbidden(`${asked} leads to a network or device path through a link`);
+  }
+}
+
+async function realOf(absolute: string, asked: string): Promise<string> {
+  await refuseNetworkLink(absolute, asked);
   return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") {
       throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
@@ -337,6 +349,8 @@ async function realWithin(
       "a folder outside the workspace's is read only on this computer, not on its host",
     );
   }
+  if (!inNetworkFolder(style.windows, absolute, folders))
+    await refuseNetworkLink(absolute, absolute);
   const real = await nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT")
       throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
