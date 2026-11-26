@@ -21,7 +21,7 @@ function host() {
     activity: () => null,
     claudeAsks: () => [],
     claudeAgents: { list: () => [] },
-    consents: { list: () => [] },
+    consents: { list: () => [], listResolutions: () => [] },
     ui: async (
       op: string,
       args: { seen?: { workspaceId: string; tabId: string; upTo: number }[] },

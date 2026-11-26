@@ -825,7 +825,12 @@ export function fakeApp(now = Date.now()): FakeApp {
       );
       return true;
     },
-    consents: { ask: (args) => ui("consent.ask", args), list: () => [], answer: async () => false },
+    consents: {
+      ask: (args) => ui("consent.ask", args),
+      list: () => [],
+      listResolutions: () => [],
+      answer: async () => false,
+    },
     remote,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],

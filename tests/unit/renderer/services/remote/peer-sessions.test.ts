@@ -1,4 +1,6 @@
 import { expect, mock, spyOn, test } from "bun:test";
+import type { SessionsUpdate } from "../../../../../packages/remote-protocol/src";
+import * as toast from "../../../../../src/renderer/components/ui/toast";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import { remoteSessionKey } from "../../../../../src/renderer/services/agent-view/layout";
 import {
@@ -11,6 +13,55 @@ import {
   useRemoteViewStore,
 } from "../../../../../src/renderer/state/stores/remote-view";
 import { ipcOk } from "../../../../../src/shared/ipc/result";
+
+test("a watched consent that times out is delisted with one notice for local observers", async () => {
+  const consent = {
+    id: "fresh",
+    at: 1000,
+    expiresAt: 121_000,
+    expiresInMs: 120_000,
+    from: { workspaceId: "a", tabId: "t" },
+    workspaceId: "b",
+    change: { kind: "tabClose" },
+    eachTime: false,
+    answerable: true,
+  };
+  const list = { sessions: [], workspaces: [], consents: [consent] };
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcOk({ ...list, watchId: "watch" }));
+  let send: ((data: { deviceId: string; update: SessionsUpdate }) => void) | undefined;
+  const listen = spyOn(ipc, "ipcListen").mockImplementation((_, __, receive) => {
+    send = receive;
+    return () => {};
+  });
+  const show = spyOn(toast, "showToast").mockReturnValue(1);
+  const receive = mock((_sessions: PeerSessions) => {});
+  const stopSidebar = observePeerSessions("d2", 0, receive);
+  const stopPane = observePeerSessions("d2", 0, () => {});
+  try {
+    await Promise.resolve();
+    const update: SessionsUpdate = {
+      ...list,
+      watchId: "watch",
+      consents: [],
+      consentResolutions: [{ id: "fresh", reason: "timeout" }],
+    };
+    send?.({ deviceId: "d2", update });
+    send?.({ deviceId: "d2", update });
+    expect(receive).toHaveBeenLastCalledWith({
+      status: "ready",
+      list: { ...list, consents: [], consentResolutions: update.consentResolutions },
+    });
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(show).toHaveBeenCalledWith({ kind: "info", message: "Approval timed out" });
+  } finally {
+    stopSidebar();
+    stopPane();
+    await Promise.resolve();
+    call.mockRestore();
+    listen.mockRestore();
+    show.mockRestore();
+  }
+});
 
 test("the sidebar and panes share a device's sessions watch and refresh", async () => {
   const list = { sessions: [], workspaces: [] };

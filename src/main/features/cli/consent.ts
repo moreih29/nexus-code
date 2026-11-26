@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
+import type { CliChange, CliConsentAnswer, CliUiOps } from "../../../shared/cli/ui";
 import type { AppState } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { tryGetMainT } from "../../i18n";
 import { CliError } from "./context";
 
 export type CrossWorkspacePolicy = AppState["cliCrossWorkspace"];
+
+const WORKSPACE_APPROVAL_MS = 120_000;
 
 export interface ChangeRequest {
   readonly fromWorkspaceId: string;
@@ -17,6 +19,22 @@ export interface ChangeRequest {
   readonly sandbox?: {
     readonly verified: boolean;
     readonly workspaceChange: CliChange;
+  };
+}
+
+export function consentArgsForChange({
+  fromWorkspaceId,
+  fromTabId,
+  toWorkspaceId,
+  change,
+  otherWorkspaces,
+}: ChangeRequest): CliUiOps["consent.ask"]["args"] {
+  return {
+    fromWorkspaceId,
+    fromTabId,
+    toWorkspaceId,
+    change,
+    ...(otherWorkspaces ? { crossWorkspace: true, timeoutMs: WORKSPACE_APPROVAL_MS } : {}),
   };
 }
 

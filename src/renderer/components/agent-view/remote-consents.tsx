@@ -301,8 +301,13 @@ export function RemoteConsentCard({
 
   const title = t(consentTitleOf(consent.change.kind, Boolean(consent.from.device)));
   const headline = consentHeadlineOf(t, consent.change, title);
-  const sentence = consentSentenceOf(t, consent, workspaceName, sessions);
-  const { from } = consent;
+  const { from, scope, allowScopes } = consent;
+  const target = scope?.worktreeName
+    ? `${scope.workspaceName} · ${scope.worktreeName}`
+    : (scope?.workspaceName ?? workspaceName);
+  const sentence = consentSentenceOf(t, consent, target, sessions);
+  const session = allowScopes?.session;
+  const showMenu = !allowScopes && !consent.eachTime;
   const asker = from.manager && !from.device ? undefined : (from.name ?? shortId(from.tabId));
   return (
     <section aria-label={title} className={PERMISSION_CARD_CLASS} data-testid="remote-consent">
@@ -325,12 +330,10 @@ export function RemoteConsentCard({
                 <>
                   <span className="min-w-0 truncate">{`${asker} →`}</span>
                   <DeviceTag className="shrink-0" name={device} />
-                  <span className="min-w-0 truncate">{workspaceName}</span>
+                  <span className="min-w-0 truncate">{target}</span>
                 </>
               ) : (
-                <span className="min-w-0 truncate">
-                  {asker ? `${asker} → ${workspaceName}` : workspaceName}
-                </span>
+                <span className="min-w-0 truncate">{asker ? `${asker} → ${target}` : target}</span>
               )}
             </span>
             <p className="sr-only">{sentence}</p>
@@ -356,6 +359,11 @@ export function RemoteConsentCard({
             {body}
           </button>
         )}
+        {consent.kind === "cross-workspace" && scope && session === "chat-session" && (
+          <p className="text-app-micro text-muted-foreground">
+            {t("agentCli.consent.workspaceScope", { workspace: scope.workspaceName })}
+          </p>
+        )}
         {consent.answerable ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
@@ -367,17 +375,32 @@ export function RemoteConsentCard({
             >
               {tc("chat.permission.deny_send")}
             </Button>
+            {session && (
+              <Button
+                size="sm"
+                variant="outline"
+                loading={busy === "session"}
+                disabled={!idle}
+                onClick={(event) => answerOnce(event, "session")}
+              >
+                {t(
+                  session === "chat-session"
+                    ? "agentCli.consent.chatSession"
+                    : "agentCli.consent.session",
+                )}
+              </Button>
+            )}
             <span className="inline-flex">
               <Button
                 size="sm"
-                className={cn(CONSENT_CONFIRM_BUTTON_CLASS, !consent.eachTime && "rounded-r-none")}
+                className={cn(CONSENT_CONFIRM_BUTTON_CLASS, showMenu && "rounded-r-none")}
                 loading={busy === "once"}
                 disabled={!idle}
                 onClick={(event) => answerOnce(event, "once")}
               >
-                {t("agentCli.consent.allow")}
+                {t(session ? "agentCli.consent.once" : "agentCli.consent.allow")}
               </Button>
-              {!consent.eachTime && (
+              {showMenu && (
                 <DropdownMenuRoot>
                   <DropdownMenuTrigger>
                     <Button

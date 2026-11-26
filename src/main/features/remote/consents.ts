@@ -3,8 +3,9 @@ import {
   type RemoteConsent,
   RpcErrorCode,
 } from "../../../../packages/remote-protocol/src";
-import { consentDetailsOf } from "../../../shared/cli/consent-copy";
+import { consentAllowScopes, consentDetailsOf } from "../../../shared/cli/consent-copy";
 import { isTerminalChange } from "../../../shared/cli/ui";
+import { shortId } from "../../../shared/util/short-id";
 import { getMainI18n, tryGetMainT } from "../../i18n";
 import type { CliServices, PendingConsent } from "../cli/context";
 import { RpcFailure } from "./room";
@@ -62,6 +63,14 @@ export async function remoteConsents(
         (remote ? undefined : await titleOf(request.fromWorkspaceId, request.fromTabId));
       const { kind, instructionEdit, profileAdd, profileEdit, profileRemove, settingsEdit } =
         request.change;
+      const destination = workspaces.find((w) => w.id === request.toWorkspaceId);
+      const parentId = destination?.task?.parentId;
+      const scope = destination && {
+        workspaceName: parentId
+          ? (workspaces.find((w) => w.id === parentId)?.name ?? shortId(parentId))
+          : destination.name,
+        ...(parentId ? { worktreeName: destination.name } : {}),
+      };
       const { profileDefault, profileRule } = request.change;
       const { detail, body } =
         t &&
@@ -100,6 +109,13 @@ export async function remoteConsents(
         eachTime: request.change.eachTime === true,
         answerable: refusalFor(p, controls) === null,
         ...(p.expiresAt === undefined ? { untimed: true as const } : {}),
+        ...(request.crossWorkspace ? { kind: "cross-workspace" as const } : {}),
+        ...(scope ? { scope } : {}),
+        allowScopes: consentAllowScopes(
+          kind,
+          request.change.eachTime,
+          request.crossWorkspace === true,
+        ),
       };
     }),
   );

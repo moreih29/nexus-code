@@ -42,6 +42,7 @@ import {
   type ChangeRequest,
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
+  consentArgsForChange,
   grantWorkspaceId,
 } from "./consent";
 import { ConsentPrompts } from "./consent-prompts";
@@ -66,7 +67,6 @@ const log = createLogger("cli");
 const slowRequests = limitLog(log);
 
 const BUTTON_PICK_MS = 10 * 60_000;
-const WORKSPACE_APPROVAL_MS = 120_000;
 
 const DISABLED: CliResult = {
   stdout: "",
@@ -179,22 +179,10 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       (await bridge.ask("consent.settle", { id, answer, by })).settled,
     onChange: () => options.onConsentsChanged?.(),
   });
-  const askConsent = async (
-    { fromWorkspaceId, fromTabId, toWorkspaceId, change, otherWorkspaces }: ChangeRequest,
-    signal?: AbortSignal,
-  ) => {
-    const pending = consents.ask(
-      {
-        fromWorkspaceId,
-        fromTabId,
-        toWorkspaceId,
-        change,
-        ...(otherWorkspaces ? { crossWorkspace: true, timeoutMs: WORKSPACE_APPROVAL_MS } : {}),
-      },
-      undefined,
-      signal,
-    );
-    if (otherWorkspaces && !signal?.aborted) {
+  const askConsent = async (request: ChangeRequest, signal?: AbortSignal) => {
+    const args = consentArgsForChange(request);
+    const pending = consents.ask(args, undefined, signal);
+    if (args.crossWorkspace && !signal?.aborted) {
       const t = tryGetMainT();
       notifyTab(
         {
@@ -203,8 +191,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
           workspaceName: (id) => workspaceManager.getName(id),
           reveal: options.focusWindow,
         },
-        toWorkspaceId,
-        fromTabId,
+        args.toWorkspaceId,
+        args.fromTabId,
         t?.("settings:agentCli.consent.notificationTitle") ?? "Workspace approval requested",
         t?.("settings:agentCli.consent.notificationBody") ?? "Open NexusCode to answer",
       );
