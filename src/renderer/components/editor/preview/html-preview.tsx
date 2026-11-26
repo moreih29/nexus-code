@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PANE_FRAME_FOCUS_EVENT } from "@/utils/pane-activation";
 import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
@@ -11,13 +11,18 @@ import {
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
 import {
   buildPreviewDocument,
+  type PreviewScopeCandidate,
   previewSafeHtml,
+  previewScopeCandidates,
+  scopedBase,
 } from "../../../services/editor/preview/html-document";
 import {
   PreviewDocumentLoader,
   type PreviewDocumentStore,
   type PreviewFrame,
 } from "../../../services/editor/preview/preview-document-loader";
+import { peerOf, peerRoot } from "../../../services/remote/peer-workspace";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { type FindResult, usePreviewFindBar, usePreviewFinder } from "./preview-find";
 
 interface HtmlPreviewProps {
@@ -247,21 +252,32 @@ function buildBaseTag(scope: PreviewScope | null): string {
   return scope ? `<base href="${scope.base}">` : "";
 }
 
-function usePreviewScope(workspaceId: string, dir: string): PreviewScope | null | undefined {
+function usePreviewScope(
+  workspaceId: string,
+  candidates: readonly PreviewScopeCandidate[],
+): PreviewScope | null | undefined {
   const [held, setHeld] = useState<{ key: string; scope: PreviewScope | null } | null>(null);
-  const key = `${workspaceId}\0${dir}`;
+  const key = `${workspaceId}\0${candidates.map(({ dir, sub }) => `${dir}\0${sub}`).join("\0")}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for the candidates
   useEffect(() => {
     let live = true;
-    void ipcCallResult("preview", "openScope", { workspaceId, dir })
-      .then((result) => (result.ok ? result.value : null))
-      .catch(() => null)
-      .then((scope) => {
-        if (live) setHeld({ key, scope });
-      });
+    const open = async (): Promise<PreviewScope | null> => {
+      for (const { dir, sub } of candidates) {
+        const result = await ipcCallResult("preview", "openScope", { workspaceId, dir }).catch(
+          () => null,
+        );
+        const scope = result?.ok ? result.value : null;
+        if (scope) return { scope: scope.scope, base: scopedBase(scope.base, sub) };
+      }
+      return null;
+    };
+    void open().then((scope) => {
+      if (live) setHeld({ key, scope });
+    });
     return () => {
       live = false;
     };
-  }, [workspaceId, dir, key]);
+  }, [workspaceId, key]);
   return held?.key === key ? held.scope : undefined;
 }
 
@@ -297,8 +313,15 @@ function iframeFrame(el: HTMLIFrameElement): PreviewFrame {
 
 export function HtmlPreview({ source, workspaceId, currentFileAbsPath, thumb }: HtmlPreviewProps) {
   const { t } = useTranslation();
-  const slash = Math.max(currentFileAbsPath.lastIndexOf("/"), currentFileAbsPath.lastIndexOf("\\"));
-  const scope = usePreviewScope(workspaceId, currentFileAbsPath.slice(0, Math.max(slash, 0)));
+  const root = useWorkspace(workspaceId, (w) =>
+    w ? (w.location.kind === "local" ? w.location.rootPath : w.location.remotePath) : "",
+  );
+  const workspaceRoot = peerOf(workspaceId) ? peerRoot(workspaceId) : root;
+  const candidates = useMemo(
+    () => previewScopeCandidates(currentFileAbsPath, workspaceRoot),
+    [currentFileAbsPath, workspaceRoot],
+  );
+  const scope = usePreviewScope(workspaceId, candidates);
   const baseTag = buildBaseTag(scope ?? null);
   const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);

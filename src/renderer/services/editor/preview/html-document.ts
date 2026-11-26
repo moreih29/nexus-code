@@ -1,3 +1,5 @@
+import { isUnder, relativeTo } from "../../../../shared/fs/relative-path";
+
 export const STANDARD_DOCTYPE = "<!DOCTYPE html>";
 
 const DOCTYPE_OPEN = "<!doctype";
@@ -49,4 +51,22 @@ export function previewSafeHtml(source: string): string {
       (attributeOf(tag, "http-equiv") ?? "").toLowerCase() === "refresh" ? "" : tag,
     )
     .replace(BASE_TAG, "");
+}
+
+export interface PreviewScopeCandidate {
+  readonly dir: string;
+  readonly sub: string;
+}
+
+export function previewScopeCandidates(file: string, root: string): PreviewScopeCandidate[] {
+  const slash = Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"));
+  const own = { dir: file.slice(0, Math.max(slash, 0)), sub: "" };
+  if (!root || !isUnder(file, root)) return [own];
+  const top = root.replace(/(.)[\\/]+$/, "$1");
+  return [{ dir: top, sub: relativeTo(own.dir, top).replace(/\\/g, "/") }, own];
+}
+
+export function scopedBase(base: string, sub: string): string {
+  if (!sub) return base;
+  return `${base}${sub.split("/").map(encodeURIComponent).join("/")}/`;
 }

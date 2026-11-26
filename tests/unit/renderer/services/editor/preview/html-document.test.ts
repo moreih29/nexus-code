@@ -3,7 +3,9 @@ import {
   buildPreviewDocument,
   leadingDoctypeEnd,
   previewSafeHtml,
+  previewScopeCandidates,
   STANDARD_DOCTYPE,
+  scopedBase,
 } from "../../../../../../src/renderer/services/editor/preview/html-document";
 
 const HEAD = "<base href=x>";
@@ -78,5 +80,37 @@ describe("previewSafeHtml", () => {
     const page =
       '<meta charset="utf-8"><meta http-equiv="refresh" content="0;url=https://x.test"><META HTTP-EQUIV=Refresh content=1><base href="https://x.test/"><base target=_top><p>';
     expect(previewSafeHtml(page)).toBe('<meta charset="utf-8"><p>');
+  });
+});
+
+describe("previewScopeCandidates", () => {
+  test("a page in the workspace reads from the workspace's root, then its own folder", () => {
+    expect(previewScopeCandidates("/w/docs/site/index.html", "/w")).toEqual([
+      { dir: "/w", sub: "docs/site" },
+      { dir: "/w/docs/site", sub: "" },
+    ]);
+    expect(previewScopeCandidates("/w/index.html", "/w/")).toEqual([
+      { dir: "/w", sub: "" },
+      { dir: "/w", sub: "" },
+    ]);
+    expect(previewScopeCandidates("C:\\w\\docs\\a.html", "C:\\w")).toEqual([
+      { dir: "C:\\w", sub: "docs" },
+      { dir: "C:\\w\\docs", sub: "" },
+    ]);
+  });
+
+  test("a page outside the workspace reads only from its own folder", () => {
+    expect(previewScopeCandidates("/tmp/r/index.html", "/w")).toEqual([{ dir: "/tmp/r", sub: "" }]);
+    expect(previewScopeCandidates("/wx/index.html", "/w")).toEqual([{ dir: "/wx", sub: "" }]);
+    expect(previewScopeCandidates("/tmp/r/index.html", "")).toEqual([{ dir: "/tmp/r", sub: "" }]);
+  });
+});
+
+describe("scopedBase", () => {
+  test("puts the page's folder under the root's address", () => {
+    const base = "nexus-workspace://a.scope/";
+    expect(scopedBase(base, "")).toBe(base);
+    expect(scopedBase(base, "docs/my site")).toBe(`${base}docs/my%20site/`);
+    expect(scopedBase(base, "문서/#1")).toBe(`${base}%EB%AC%B8%EC%84%9C/%231/`);
   });
 });
