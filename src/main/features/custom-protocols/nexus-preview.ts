@@ -144,7 +144,9 @@ function ownerOf(ctx: CallContext | undefined): number {
 async function isBroadRealDir(workspaceId: string, dir: string, home: string): Promise<boolean> {
   if (peerOf(workspaceId)) return false;
   const real = await realpathNative(dir).catch(() => null);
-  return real !== null && isBroadDir(real, home);
+  if (real === null) return false;
+  const realHome = home ? await realpathNative(home).catch(() => home) : home;
+  return isBroadDir(real, home) || isBroadDir(real, realHome);
 }
 
 export function previewHandlers(

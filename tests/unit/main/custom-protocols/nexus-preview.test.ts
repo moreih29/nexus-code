@@ -236,6 +236,25 @@ describe("the preview channel", () => {
     }
   });
 
+  test("knows a home named through a link or a short name as that home", async () => {
+    const documents = new PreviewDocuments(tokens());
+    const top = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-top-")));
+    const home = path.join(top, "home");
+    const named = path.join(top, "named");
+    fs.mkdirSync(path.join(home, "r"), { recursive: true });
+    fs.symlinkSync(home, named);
+    try {
+      const scopes = new PreviewScopes(named);
+      const handlers = previewHandlers(documents, () => {}, scopes, named);
+      const open = (dir: string) => handlers.openScope({ workspaceId: "ws", dir }, ctx(WINDOW_A));
+      expect(await open(home)).toBeNull();
+      expect(await open(top)).toBeNull();
+      expect(await open(path.join(home, "r"))).not.toBeNull();
+    } finally {
+      fs.rmSync(top, { recursive: true, force: true });
+    }
+  });
+
   test("a document takes only a folder its own window opened", async () => {
     const documents = new PreviewDocuments(tokens());
     const scopes = new PreviewScopes("/nowhere");
