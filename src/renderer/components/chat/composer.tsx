@@ -43,7 +43,11 @@ import {
   matchCommands,
   type TypedToken,
 } from "../../services/chat/composer-input";
-import { canRestoreFailedDraft, composerSendDecision } from "../../services/chat/composer-submit";
+import {
+  canRestoreFailedDraft,
+  type PeerSendState,
+  waitForPeerSend,
+} from "../../services/chat/composer-submit";
 import { watchFileDrop } from "../../services/chat/file-drop";
 import {
   type CommandInfo,
@@ -138,7 +142,7 @@ interface ComposerProps {
   appCommands?: boolean;
   commands?: readonly CommandInfo[];
   takesDraft?: boolean;
-  peerWaitUntil?: number;
+  peerSend?: PeerSendState;
   composition?: ComposerContents & {
     setFiles: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
     setText: React.Dispatch<React.SetStateAction<string>>;
@@ -215,7 +219,7 @@ export const Composer = memo(function Composer({
   appCommands = true,
   commands: ownCommands,
   takesDraft = true,
-  peerWaitUntil,
+  peerSend,
   composition,
 }: ComposerProps) {
   const { t } = useTranslation();
@@ -233,15 +237,16 @@ export const Composer = memo(function Composer({
   const submitting = useRef(false);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const attachmentReads = useRef(0);
-  const latestPeerWait = useRef(peerWaitUntil);
-  const waitForPeer = useRef<((shown: boolean) => void) | null>(null);
+  const latestPeerSend = useRef(peerSend);
+  const waitForPeer = useRef<ReturnType<typeof waitForPeerSend> | null>(null);
   useLayoutEffect(() => {
-    latestPeerWait.current = peerWaitUntil;
-    if (peerWaitUntil === undefined) waitForPeer.current?.(true);
-  }, [peerWaitUntil]);
+    latestPeerSend.current = peerSend;
+    waitForPeer.current?.check();
+  });
   useLayoutEffect(
     () => () => {
-      waitForPeer.current?.(false);
+      waitForPeer.current?.cancel();
+      waitForPeer.current = null;
     },
     [],
   );
@@ -260,6 +265,7 @@ export const Composer = memo(function Composer({
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
   const canSend =
     !blocked &&
+    (peerSend === undefined || peerSend.ready || peerSend.until !== undefined) &&
     hasText &&
     !sending &&
     !readingAttachments &&
@@ -467,25 +473,30 @@ export const Composer = memo(function Composer({
     const notes = chatNotes ? localDraft.current.current.notes : EMPTY_DRAFT.notes;
     const hasBody = body.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
     if (blocked || submitting.current || attachmentReads.current > 0 || !hasBody) return;
-    const until = latestPeerWait.current;
-    if (composition && until !== undefined) {
-      if (Date.now() >= until) return;
+    const peer = latestPeerSend.current;
+    if (composition && peer && !peer.ready) {
+      const { until } = peer;
+      if (until === undefined || Date.now() >= until) {
+        showToast({ kind: "error", message: t("chat.composer.peer_wait_offline") });
+        return;
+      }
       submitting.current = true;
       setSending(true);
-      const shown = await new Promise<boolean>((resolve) => {
-        waitForPeer.current = resolve;
-      });
+      const sameDraft = () => attachmentReads.current === 0 && composition.current() === pressed;
+      const ready = () => latestPeerSend.current?.ready === true;
+      const waiting = waitForPeerSend(until, ready, sameDraft);
+      waitForPeer.current = waiting;
+      const decision = await waiting.result;
+      if (waitForPeer.current !== waiting) return;
       waitForPeer.current = null;
       submitting.current = false;
       setSending(false);
-      if (
-        composerSendDecision(
-          shown && latestPeerWait.current === undefined && Date.now() < until,
-          shown && Date.now() < until,
-          composition.current() === pressed,
-        ) === "send"
-      ) {
+      if (decision === "changed" || !sameDraft()) {
+        showToast({ kind: "info", message: t("chat.composer.peer_wait_changed") });
+      } else if (decision === "send" && ready()) {
         void submitRef.current(how, dictated);
+      } else if (decision === "offline" || decision === "send") {
+        showToast({ kind: "error", message: t("chat.composer.peer_wait_offline") });
       }
       return;
     }

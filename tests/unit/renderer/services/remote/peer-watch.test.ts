@@ -132,13 +132,14 @@ function watcher() {
   const sessions: PeerWatchSession<PeerWatched>[] = [];
   const seen: unknown[] = [];
   const probed: PeerWatched[] = [];
+  let state: ReturnType<typeof usePeerWatch> | undefined;
   let stops = 0;
   const view = mount(() => {
-    usePeerWatch<PeerWatched, "peerTerminalUpdate">({
+    state = usePeerWatch<PeerWatched, "peerChatUpdate">({
       deviceId,
       target: "tab",
       shown: true,
-      updates: "peerTerminalUpdate",
+      updates: "peerChatUpdate",
       start(session) {
         sessions.push(session);
         return {
@@ -151,8 +152,29 @@ function watcher() {
       },
     });
   });
-  return { view, sessions, seen, probed, stops: () => stops };
+  return { view, sessions, seen, probed, stops: () => stops, state: () => state };
 }
+
+test("a skipped chat revision makes the watch unready while the peer stays online", () => {
+  const { view, sessions, state } = watcher();
+  view.render();
+  expect(state()).toEqual({ online: true, ready: false });
+  sessions[0]?.opened({ id: "first", rev: 0 });
+  view.render();
+  expect(state()).toEqual({ online: true, ready: true });
+
+  updates?.({ deviceId, update: { watchId: "first", rev: 2 } });
+  view.render();
+  expect(state()).toEqual({ online: true, ready: false });
+  sessions[0]?.opened({ id: "late", rev: 0 });
+  view.render();
+  expect(state()).toEqual({ online: true, ready: false });
+
+  sessions[1]?.opened({ id: "current", rev: 0 });
+  view.render();
+  expect(state()).toEqual({ online: true, ready: true });
+  view.unmount();
+});
 
 test("a reconnect or a skipped revision starts the watch again", () => {
   const { view, sessions, seen, stops } = watcher();

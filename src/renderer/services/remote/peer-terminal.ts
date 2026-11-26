@@ -92,7 +92,7 @@ export function usePeerTerminal(
   const { deviceId, workspaceId, tabId } = ref;
   const [read, setRead] = useState<PeerRead<PeerScreen>>({ status: "loading" });
 
-  const online = usePeerWatch<TerminalWatch, "peerTerminalUpdate">({
+  const { online } = usePeerWatch<TerminalWatch, "peerTerminalUpdate">({
     deviceId,
     target: JSON.stringify([workspaceId, tabId, lines]),
     shown,
