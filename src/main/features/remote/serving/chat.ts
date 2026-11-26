@@ -16,7 +16,7 @@ import type { CliServices } from "../../cli/context";
 import { openerOf } from "../../cli/sender";
 import type { FsProvider } from "../../fs/bridge/provider";
 import type { Attachments } from "../attachments";
-import { folderIn } from "../files";
+import { folderIn, namesNetworkPath } from "../files";
 import { type FolderSystem, folderToAdd, SYSTEM_FOLDERS } from "../folders";
 import { MAX_MESSAGE_BYTES, RpcFailure } from "../room";
 import type { Uploads } from "../uploads";
@@ -324,11 +324,20 @@ export async function chatCommands(
   return services.ui("chat.commands", { workspaceId, tabId }).catch(unavailable);
 }
 
+function namesNetworkQuery(query: string): boolean {
+  const bare = query
+    .trim()
+    .replace(/^["']?@?["']?/, "")
+    .replace(/["']$/, "");
+  return namesNetworkPath(bare, win32.normalize(bare));
+}
+
 export async function chatFileSuggestions(
   services: CliServices,
   { workspaceId, tabId, query }: RpcParams<"chat.fileSuggestions">,
 ): Promise<RpcResult<"chat.fileSuggestions">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  if (namesNetworkQuery(query)) return { paths: [] };
   const { paths } = await services
     .ui("chat.fileSuggestions", { workspaceId, tabId, query })
     .catch(unavailable);
