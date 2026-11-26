@@ -77,6 +77,7 @@ class MockRelay {
         this.presence();
       },
       healthy: () => {},
+      disconnect: (status: "connecting" | "waiting") => handlers.onStatus(status),
       reopen: () => {
         handlers.onStatus("waiting");
         handlers.onOpen();
@@ -183,6 +184,7 @@ function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<Remot
   return {
     room,
     served,
+    disconnect: (status: "connecting" | "waiting") => connection?.disconnect(status),
     reopen: () => connection?.reopen(),
     recoveries: () => connection?.recoveries(),
   };
@@ -1643,6 +1645,45 @@ describe("the protocol a device speaks", () => {
 describe("the host's file reads", () => {
   const read = (path: string) => ({ workspaceId: "w", path, as: "bytes" as const, length: 1 });
   const answered = { kind: "bytes", path: "/w/f", offset: 0, size: 1, data: "QQ==" } as const;
+
+  test.each([
+    "connecting",
+    "waiting",
+  ] as const)("a read started while %s with a known epoch waits until its own deadline", async (status) => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const serve = jest.fn(async () => answered);
+    const host = device(relay, "host", key, { serves: ["files"], serve });
+    const client = device(relay, "client", key);
+    host.room.start();
+    client.room.start();
+    await flushRelay();
+    jest.useFakeTimers();
+    try {
+      client.disconnect(status);
+      const first = client.room
+        .request("host", "files.read", read("/w/f"), 5_000)
+        .catch((error: unknown) => error);
+      const failed = jest.fn();
+      const second = client.room.request("host", "files.read", read("/w/f"), 10_000).catch(failed);
+      jest.advanceTimersByTime(6_000);
+      await flushRelay();
+      expect(await first).toMatchObject({
+        code: RpcErrorCode.Unavailable,
+        message: "files.read: no answer in time",
+      });
+      expect(failed).not.toHaveBeenCalled();
+      expect(serve).not.toHaveBeenCalled();
+
+      client.reopen();
+      expect(await second).toEqual(answered);
+      expect(serve).toHaveBeenCalledTimes(1);
+    } finally {
+      client.room.stop();
+      host.room.stop();
+      jest.useRealTimers();
+    }
+  });
 
   test("one over the budget is told it is busy each, and the rest are read within the budget", async () => {
     const relay = new MockRelay();

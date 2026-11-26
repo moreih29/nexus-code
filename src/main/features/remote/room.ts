@@ -475,8 +475,12 @@ export class RemoteRoom {
     if (!fitsInFrame(message)) {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`);
     }
-    const ready = !this.connecting() || (await this.waitUntilReady(signal));
-    if (!ready || this.status !== "online") {
+    const connecting = this.connecting();
+    const known = connecting ? this.heard.get(to) : undefined;
+    const awaitingReconnect = known !== undefined && !known.departed && RETRYABLE_READS.has(method);
+    const ready = !connecting || awaitingReconnect || (await this.waitUntilReady(signal));
+    const here = this.status === "online";
+    if (!ready || (!here && !awaitingReconnect)) {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
         "not in the room",
@@ -484,9 +488,9 @@ export class RemoteRoom {
       );
     }
     const heard = this.heard.get(to);
-    const peer = heard?.departed ? undefined : heard?.epoch;
+    const peer = here && !heard?.departed ? heard?.epoch : undefined;
     const online = this.peers.get(to)?.online;
-    if (online === false || (!peer && online === undefined)) {
+    if (here && (online === false || (!peer && online === undefined))) {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
         "that device is not in the room",
@@ -516,7 +520,7 @@ export class RemoteRoom {
       signal?.addEventListener("abort", abort, { once: true });
       if (peer) {
         this.sendRequest(p, peer);
-      } else {
+      } else if (here) {
         p.helloTimer = setTimeout(() => {
           this.rejectPending(p, this.interrupted(p, "that device has not said hello yet"));
         }, HELLO_WAIT_MS);
