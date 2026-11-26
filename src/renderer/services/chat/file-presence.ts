@@ -1,32 +1,24 @@
 import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
-import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
+import { isAbsoluteOutsidePath, isNetworkOrDevicePath } from "../../../shared/fs/outside-url";
 import { isUnder } from "../../../shared/fs/relative-path";
-import { isOutsideGranted, useOutsideGrantsStore } from "../../state/stores/outside-grants";
 import { useChatFiles } from "./chat-files";
 
 const FRESH_MS = 30_000;
 
 export type FileLookup = (workspaceId: string, relPath: string) => Promise<boolean>;
 
-export type OutsideGrantCheck = (workspaceId: string, path: string) => boolean;
-
 const lookUpInWorkspace: FileLookup = async (workspaceId, relPath) => {
   if (isAbsoluteOutsidePath(relPath)) {
-    const read = await ipcCallResult("fs", "readRange", {
+    const there = await ipcCallResult("fs", "outsideExists", {
       workspaceId,
-      relPath,
-      offset: 0,
-      length: 0,
+      absolutePath: relPath,
     }).catch(() => null);
-    return read?.ok === true && read.value.kind !== "missing";
+    return there?.ok === true && there.value;
   }
   const stat = await ipcCallResult("fs", "stat", { workspaceId, relPath }).catch(() => null);
   return stat?.ok === true && stat.value.type !== "dir";
 };
-
-const grantedOutside: OutsideGrantCheck = (workspaceId, path) =>
-  isOutsideGranted(useOutsideGrantsStore.getState().byWorkspace, workspaceId, path);
 
 export function lookupPath(path: string, root: string): string | null {
   if (!root || !isUnder(path, root)) return null;
@@ -34,22 +26,16 @@ export function lookupPath(path: string, root: string): string | null {
   return path.length > base.length ? path.slice(base.length + 1) : null;
 }
 
-function pathToLookUp(
-  workspaceId: string,
-  path: string,
-  root: string,
-  granted: OutsideGrantCheck,
-): string | null {
+function pathToLookUp(path: string, root: string): string | null {
   const relPath = lookupPath(path, root);
   if (relPath !== null) return relPath;
   if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
-  return granted(workspaceId, path) ? path : null;
+  return isNetworkOrDevicePath(path) ? null : path;
 }
 
 export function createFilePresence(
   lookUp: FileLookup = lookUpInWorkspace,
   now: () => number = Date.now,
-  granted: OutsideGrantCheck = grantedOutside,
 ) {
   const found = new Map<string, number>();
   const asking = new Map<string, Promise<boolean>>();
@@ -62,7 +48,7 @@ export function createFilePresence(
       const key = `${workspaceId}\u0000${path}`;
       const fresh = this.known(workspaceId, path);
       if (fresh !== undefined) return fresh;
-      const relPath = pathToLookUp(workspaceId, path, root, granted);
+      const relPath = pathToLookUp(path, root);
       if (relPath === null) return false;
       let pending = asking.get(key);
       if (!pending) {
@@ -107,9 +93,8 @@ export async function filesGone(
   workspaceId: string,
   root: string,
   paths: readonly string[],
-  granted: OutsideGrantCheck = grantedOutside,
 ): Promise<ReadonlySet<string>> {
-  const looked = paths.filter((path) => pathToLookUp(workspaceId, path, root, granted) !== null);
+  const looked = paths.filter((path) => pathToLookUp(path, root) !== null);
   const found = await filesFound(presence, workspaceId, root, looked);
   return new Set(looked.filter((path) => !found.has(path)));
 }
@@ -136,9 +121,6 @@ export function useFoundFiles(
   recheck: unknown = null,
 ): ReadonlySet<string> {
   const key = paths.join("\n");
-  const outside = useOutsideGrantsStore((s) =>
-    paths.filter((path) => isOutsideGranted(s.byWorkspace, workspaceId, path)).join("\n"),
-  );
   const files = useChatFiles();
   const scope = files ? (files.access?.scope ?? null) : undefined;
   const [found, setFound] = useState<{ scope: typeof scope; paths: ReadonlySet<string> }>(() => ({
@@ -146,7 +128,7 @@ export function useFoundFiles(
     paths: files ? EMPTY_PATHS : new Set(paths.filter((path) => presence.known(workspaceId, path))),
   }));
   if (found.scope !== scope) setFound({ scope, paths: EMPTY_PATHS });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` and `outside` only say when to look again
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` only says when to look again
   useEffect(() => {
     const signal = files?.access?.signal;
     if (files && (!signal || signal.aborted)) return;
@@ -165,7 +147,7 @@ export function useFoundFiles(
     return () => {
       live = false;
     };
-  }, [workspaceId, root, key, recheck, outside, files, scope]);
+  }, [workspaceId, root, key, recheck, files, scope]);
   return found.scope === scope ? found.paths : EMPTY_PATHS;
 }
 
@@ -175,11 +157,7 @@ export function useGoneFiles(
   paths: readonly string[],
 ): ReadonlySet<string> {
   const key = paths.join("\n");
-  const outside = useOutsideGrantsStore((s) =>
-    paths.filter((path) => isOutsideGranted(s.byWorkspace, workspaceId, path)).join("\n"),
-  );
   const [gone, setGone] = useState<ReadonlySet<string>>(EMPTY_PATHS);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `outside` only says when to look again
   useEffect(() => {
     let live = true;
     const wanted = key === "" ? [] : key.split("\n");
@@ -189,6 +167,6 @@ export function useGoneFiles(
     return () => {
       live = false;
     };
-  }, [workspaceId, root, key, outside]);
+  }, [workspaceId, root, key]);
   return gone;
 }

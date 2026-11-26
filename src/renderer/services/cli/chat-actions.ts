@@ -44,7 +44,7 @@ import { CodexReplyError, existingCodexController } from "../chat/codex/controll
 import { fileMention } from "../chat/composer-input";
 import { type ChatItem, type ChatModel, isWaiting, type UserItem } from "../chat/model";
 import type { ModelPickerContext } from "../chat/model-picker";
-import { changedShareFiles, jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
+import { changedShareFiles, hostedOutsideFiles, jobOutputFile, jobsOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
@@ -891,7 +891,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       const attached = (file: string) =>
         attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null;
       if (root) {
-        for (const file of outsideLinksOf(items, tools, tab.props.cwd, root, [], attached).files) {
+        for (const file of hostedOutsideFiles(items, tools, tab.props.cwd, root, attached)) {
           files.add(file);
         }
         for (const file of changedShareFiles(tools, root)) files.add(file);

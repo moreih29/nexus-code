@@ -14,3 +14,11 @@ export function isAbsoluteOutsidePath(path: string): boolean {
 export function isDrivePath(path: string): boolean {
   return DRIVE_PATH.test(path);
 }
+
+export function isNetworkOrDevicePath(path: string): boolean {
+  return /^[\\/]{2}/.test(path);
+}
+
+export function isDevicePath(path: string): boolean {
+  return /^[\\/]{2}[?.][\\/]/.test(path);
+}

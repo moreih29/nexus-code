@@ -1629,6 +1629,10 @@ const coreIpcContract = {
       removeAll: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
+      outsideExists: call(
+        workspaceScoped({ absolutePath: z.string().min(1).max(4096) }),
+        z.boolean(),
+      ),
       grantOutside: call(
         workspaceScoped({
           owner: z.string().min(1).max(200),
