@@ -1,9 +1,12 @@
 import i18next from "i18next";
 import {
+  ChartNoAxesColumn,
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Ellipsis,
   Folder,
+  FolderPlus,
   GitBranch,
   Monitor,
   SquareTerminal,
@@ -97,12 +100,21 @@ import {
   ContextMenuTrigger,
   type MenuItemSpec,
 } from "../ui/context-menu";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { IconButton } from "../ui/icon-button";
 import { PromptDialog, type PromptRequest } from "../ui/prompt-dialog";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
+import { RemoteAddWorkspaceDialog } from "./remote-add-workspace-dialog";
 import { ConsentPages, PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { RemoteNewMenu } from "./remote-new-menu";
 import { type PeerDrag, type PeerReorder, RemotePeerHeader } from "./remote-peer-header";
+import { RemoteProfilesUsageDialog } from "./remote-profiles-usage-dialog";
 import {
   closePeerSession,
   type PeerSessionRef,
@@ -130,6 +142,12 @@ const PLATFORMS = new Map([
   ["win32", "Windows"],
   ["linux", "Linux"],
 ]);
+const PEER_ACTION_CAPABILITIES = {
+  workspace: "workspace.create",
+  usage: "profiles.usage.people",
+} as const;
+type PeerAction = keyof typeof PEER_ACTION_CAPABILITIES;
+
 const ORDER_CONFIRM_MS = 18_000;
 const tabIdOf = (session: RemoteSession) => session.tabId;
 
@@ -463,6 +481,11 @@ function AccountRemoteSessions({
     s.peerOrder?.accountKey === accountKey ? s.peerOrder.ids : undefined,
   );
   const [drag, setDrag] = useState<PeerDrag | null>(null);
+  const [dialog, setDialog] = useState<{ peer: RoomPeer; action: PeerAction } | null>(null);
+  const dialogPeer = room?.peers.find((peer) => peer.id === dialog?.peer.id);
+  const dialogOnline = room?.status === "online" && dialogPeer?.online === true;
+  const dialogServed =
+    dialog !== null && peerServes(dialogPeer, PEER_ACTION_CAPABILITIES[dialog.action]);
   const lastOnline = useRef<RoomState | null>(null);
   const roomOnline = room?.status === "online";
   const connected = roomStatus === "online";
@@ -516,9 +539,6 @@ function AccountRemoteSessions({
       : [],
     results,
   );
-  const unavailable = renderStatus
-    ? listedPeers.filter((peer) => listingFor(peer.id)?.status === "unavailable")
-    : [];
   const peers = searching
     ? listedPeers.filter((peer) => {
         const sessions = listingFor(peer.id);
@@ -528,6 +548,18 @@ function AccountRemoteSessions({
         );
       })
     : listedPeers;
+  const shownPeers = new Set(peers.map((peer) => peer.id));
+  const actionFor = (peer: RoomPeer) =>
+    roomOnline && navigation.peers.get(peer.id)?.online && hasPeerActions(peer)
+      ? (action: PeerAction) => setDialog({ peer, action })
+      : undefined;
+  const statusPeers = renderStatus
+    ? listedPeers.flatMap((peer) => {
+        const onAction = shownPeers.has(peer.id) ? actionFor(peer) : undefined;
+        const unavailable = listingFor(peer.id)?.status === "unavailable";
+        return onAction || unavailable ? [{ peer, onAction, unavailable }] : [];
+      })
+    : [];
   const canReorder =
     !renderStatus &&
     !searching &&
@@ -537,12 +569,38 @@ function AccountRemoteSessions({
   useEffect(() => {
     if (!canReorder) setDrag(null);
   }, [canReorder]);
-  if (!renderStatus && searching && peers.length === 0) return null;
-  if (signedOut && ((!renderStatus && searching) || signInNotice.dismissed)) return statusGroups;
-  if (!signedOut && outdated && outdatedNotice.dismissed) return statusGroups;
-  if (!signedOut && !outdated && (accountKey === null || (!connected && !connecting)))
-    return statusGroups;
-  if (renderStatus && connected && !signedOut && unavailable.length === 0) return statusGroups;
+  const dialogs = (
+    <>
+      {dialog?.action === "workspace" && accountKey !== null && (
+        <RemoteAddWorkspaceDialog
+          key={dialog.peer.id}
+          peer={dialogPeer ?? dialog.peer}
+          accountKey={accountKey}
+          online={dialogOnline}
+          served={dialogServed}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.action === "usage" && (
+        <RemoteProfilesUsageDialog
+          key={dialog.peer.id}
+          peer={dialogPeer ?? dialog.peer}
+          online={dialogOnline}
+          served={dialogServed}
+          onClose={() => setDialog(null)}
+        />
+      )}
+    </>
+  );
+  const showSection =
+    !(!renderStatus && searching && peers.length === 0) &&
+    (signedOut
+      ? !((!renderStatus && searching) || signInNotice.dismissed)
+      : outdated
+        ? !outdatedNotice.dismissed
+        : accountKey !== null &&
+          (connected || connecting) &&
+          (!renderStatus || !connected || statusPeers.length > 0));
   const status = !connected
     ? roomStatus === "waiting" || lastOnline.current
       ? t("agentView.remote.reconnecting")
@@ -573,78 +631,132 @@ function AccountRemoteSessions({
   return (
     <>
       {statusGroups}
-      <section
-        className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
-        data-testid="remote-sessions"
-      >
-        {(!renderStatus || !connected || signedOut) && (
-          <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
-            {t("agentView.remote.title")}
-          </h3>
-        )}
-        {signedOut && signInFailure ? (
-          <div className="px-2 py-1">
-            <SignInNotice
-              compact
-              failure={signInFailure}
-              actions={<SignInLink />}
-              dismiss={<BannerDismissButton dismiss={signInNotice.dismiss} className="-my-0.5" />}
-            />
-          </div>
-        ) : signedOut ? (
-          <div className="flex items-center gap-1.5 px-2 py-1">
-            <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
-              {t("agentView.remote.needsSignIn")}
-            </span>
-            <SignInLink />
-            <BannerDismissButton dismiss={signInNotice.dismiss} />
-          </div>
-        ) : outdated ? (
-          <OutdatedLine dismiss={outdatedNotice.dismiss} />
-        ) : (
-          <>
-            {status && (
-              <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
-                {status}
-              </p>
-            )}
-            {unavailable.map((peer) => (
-              <p
-                key={peer.id}
-                role="status"
-                className="px-2 py-1 text-app-ui-sm text-muted-foreground"
-              >
-                {remoteDisplayName(peer.name)} · {t("agentView.remote.unavailable")}
-              </p>
-            ))}
-            {!renderStatus && (
-              <div
-                inert={!connected}
-                className={cn(
-                  "flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0",
-                  !connected && "opacity-60",
-                )}
-              >
-                {peers.map((peer) => (
-                  <PeerGroup
-                    key={peer.id}
-                    peer={peer}
-                    sessions={listingFor(peer.id)}
-                    results={results}
-                    navigation={navigation}
-                    query={query}
-                    reorder={reorder?.ids.includes(peer.id) ? reorder : undefined}
-                  />
-                ))}
-                {away.map((peer) => (
-                  <OfflinePeer key={peer.id} peer={peer} />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </section>
+      {showSection && (
+        <section
+          className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
+          data-testid="remote-sessions"
+        >
+          {(!renderStatus ||
+            !connected ||
+            signedOut ||
+            statusPeers.some(({ onAction }) => onAction)) && (
+            <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
+              {t("agentView.remote.title")}
+            </h3>
+          )}
+          {signedOut && signInFailure ? (
+            <div className="px-2 py-1">
+              <SignInNotice
+                compact
+                failure={signInFailure}
+                actions={<SignInLink />}
+                dismiss={<BannerDismissButton dismiss={signInNotice.dismiss} className="-my-0.5" />}
+              />
+            </div>
+          ) : signedOut ? (
+            <div className="flex items-center gap-1.5 px-2 py-1">
+              <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
+                {t("agentView.remote.needsSignIn")}
+              </span>
+              <SignInLink />
+              <BannerDismissButton dismiss={signInNotice.dismiss} />
+            </div>
+          ) : outdated ? (
+            <OutdatedLine dismiss={outdatedNotice.dismiss} />
+          ) : (
+            <>
+              {status && (
+                <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
+                  {status}
+                </p>
+              )}
+              {statusPeers.map(({ peer, onAction, unavailable }) => (
+                <div key={peer.id} className="flex items-center gap-1 px-2 py-1">
+                  <span
+                    role={unavailable ? "status" : undefined}
+                    className="min-w-0 flex-1 truncate text-app-ui-sm text-muted-foreground"
+                  >
+                    {remoteDisplayName(peer.name)}
+                    {unavailable && <> · {t("agentView.remote.unavailable")}</>}
+                  </span>
+                  {onAction && <RemotePeerActions peer={peer} onAction={onAction} />}
+                </div>
+              ))}
+              {!renderStatus && (
+                <div
+                  inert={!connected}
+                  className={cn(
+                    "flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0",
+                    !connected && "opacity-60",
+                  )}
+                >
+                  {peers.map((peer) => (
+                    <PeerGroup
+                      key={peer.id}
+                      peer={peer}
+                      sessions={listingFor(peer.id)}
+                      results={results}
+                      navigation={navigation}
+                      query={query}
+                      reorder={reorder?.ids.includes(peer.id) ? reorder : undefined}
+                      onPeerAction={actionFor(peer)}
+                    />
+                  ))}
+                  {away.map((peer) => (
+                    <OfflinePeer key={peer.id} peer={peer} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+      {dialogs}
     </>
+  );
+}
+
+function hasPeerActions(peer: RoomPeer): boolean {
+  return Object.values(PEER_ACTION_CAPABILITIES).some((capability) => peerServes(peer, capability));
+}
+
+function RemotePeerActions({
+  peer,
+  onAction,
+}: {
+  peer: RoomPeer;
+  onAction: (action: PeerAction) => void;
+}) {
+  const { t } = useTranslation();
+  const workspace = peerServes(peer, PEER_ACTION_CAPABILITIES.workspace);
+  const usage = peerServes(peer, PEER_ACTION_CAPABILITIES.usage);
+  if (!workspace && !usage) return null;
+  return (
+    <DropdownMenuRoot>
+      <DropdownMenuTrigger>
+        <IconButton
+          label={t("agentView.remote.computerActions", { device: remoteDisplayName(peer.name) })}
+          data-testid="remote-peer-actions"
+          size="xs"
+        >
+          <Ellipsis aria-hidden className="size-3.5" />
+        </IconButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {workspace && (
+          <DropdownMenuItem onSelect={() => onAction("workspace")}>
+            <FolderPlus aria-hidden className="mr-1.5 size-3.5" />
+            {t("sidebar.add_workspace")}
+          </DropdownMenuItem>
+        )}
+        {usage && (
+          <DropdownMenuItem onSelect={() => onAction("usage")}>
+            <ChartNoAxesColumn aria-hidden className="mr-1.5 size-3.5" />
+            {t("agentView.remote.usage.title")}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenuRoot>
   );
 }
 
@@ -675,6 +787,7 @@ export function PeerGroup({
   reorder,
   results,
   navigation,
+  onPeerAction,
 }: {
   peer: RoomPeer;
   sessions: PeerSessions | undefined;
@@ -682,6 +795,7 @@ export function PeerGroup({
   reorder?: PeerReorder;
   results?: RemoteResults;
   navigation?: RemoteTreeNavigation;
+  onPeerAction?: (action: PeerAction) => void;
 }) {
   const { t } = useTranslation();
   const folds = useAgentViewStore((s) => s.folded);
@@ -840,41 +954,44 @@ export function PeerGroup({
 
   return (
     <div className="flex flex-col" data-testid="remote-peer">
-      <RemotePeerHeader
-        id={peer.id}
-        reorder={reorder}
-        expanded={!folded}
-        onToggle={() => useAgentViewStore.getState().toggleFolded(peerFoldKey)}
-        className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) py-1 pr-2 pl-1 hover:bg-[var(--state-hover-bg)]"
-      >
-        <FoldChevron folded={folded} />
-        <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate text-app-ui-sm text-foreground">
-          {remoteDisplayName(peer.name)}
-        </span>
-        <span className="min-w-0 truncate text-app-micro text-muted-foreground">
-          {PLATFORMS.get(peer.platform) ?? remoteDisplayName(peer.platform)}
-        </span>
-        {folded && list && (
-          <span className="ml-auto flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
-            {counts.map(
-              ([group, count]) =>
-                count > 0 && (
-                  <span
-                    key={group}
-                    className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
-                    title={t(`agentList.group.${group}`)}
-                    data-testid={`remote-peer-count-${group}`}
-                  >
-                    <StateGlyph state={GROUP_STATE[group]} still />
-                    <span className="sr-only">{t(`agentList.group.${group}`)} </span>
-                    {count}
-                  </span>
-                ),
-            )}
+      <div className="flex items-center gap-0.5">
+        <RemotePeerHeader
+          id={peer.id}
+          reorder={reorder}
+          expanded={!folded}
+          onToggle={() => useAgentViewStore.getState().toggleFolded(peerFoldKey)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) py-1 pr-2 pl-1 hover:bg-[var(--state-hover-bg)]"
+        >
+          <FoldChevron folded={folded} />
+          <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate text-app-ui-sm text-foreground">
+            {remoteDisplayName(peer.name)}
           </span>
-        )}
-      </RemotePeerHeader>
+          <span className="min-w-0 truncate text-app-micro text-muted-foreground">
+            {PLATFORMS.get(peer.platform) ?? remoteDisplayName(peer.platform)}
+          </span>
+          {folded && list && (
+            <span className="ml-auto flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
+              {counts.map(
+                ([group, count]) =>
+                  count > 0 && (
+                    <span
+                      key={group}
+                      className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
+                      title={t(`agentList.group.${group}`)}
+                      data-testid={`remote-peer-count-${group}`}
+                    >
+                      <StateGlyph state={GROUP_STATE[group]} still />
+                      <span className="sr-only">{t(`agentList.group.${group}`)} </span>
+                      {count}
+                    </span>
+                  ),
+              )}
+            </span>
+          )}
+        </RemotePeerHeader>
+        {onPeerAction && <RemotePeerActions peer={peer} onAction={onPeerAction} />}
+      </div>
       {!folded && (
         <div className="flex flex-col pl-3">
           {!sessions || sessions.status === "loading" ? (

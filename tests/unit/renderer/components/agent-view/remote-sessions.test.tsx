@@ -89,6 +89,61 @@ describe("Other computers connection guidance", () => {
     }
   });
 
+  test.each([
+    [[], false],
+    [["profiles.usage"], false],
+    [["profiles.usage.people"], true],
+    [["workspace.create"], true],
+    [["profiles.usage.people", "workspace.create"], true],
+  ] as const)("shows the computer menu from advertised capabilities %j", (serves, shown) => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({
+      status: "online",
+      peers: [{ ...peer, serves: ["sessions", ...serves] }],
+    });
+    expect(
+      renderToStaticMarkup(<RemoteSessions query="" />).includes(
+        'data-testid="remote-peer-actions"',
+      ),
+    ).toBe(shown);
+  });
+
+  test("shows computer actions in status grouping even before a workspace exists", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({
+      status: "online",
+      peers: [{ ...peer, serves: ["sessions", "workspace.create", "profiles.usage.people"] }],
+    });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      [peer.id]: { status: "ready", list: { workspaces: [], sessions: [] } },
+    });
+    try {
+      const html = renderToStaticMarkup(<RemoteSessions query="" renderStatus={() => null} />);
+      expect(html).toContain("Other computers");
+      expect(html).toContain("Work PC");
+      expect(html.match(/data-testid="remote-peer-actions"/g)).toHaveLength(1);
+    } finally {
+      readLists.mockRestore();
+    }
+  });
+
+  test("hides computer actions while the peer is offline", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({
+      status: "online",
+      peers: [
+        {
+          ...peer,
+          online: false,
+          serves: ["sessions", "workspace.create", "profiles.usage.people"],
+        },
+      ],
+    });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain('data-testid="remote-peer-offline"');
+    expect(html).not.toContain('data-testid="remote-peer-actions"');
+  });
+
   test("shows a signed-out account where to sign in", () => {
     const renderButton = spyOn(button, "Button");
     try {
