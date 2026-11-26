@@ -12,11 +12,13 @@ import {
   isAutoMountPath,
   isDevicePath,
   isNetworkOrDevicePath,
+  windowsPathKind,
 } from "../../../shared/fs/outside-url";
 import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
 import type { FsProvider } from "../fs/bridge/provider";
+import { asciiLower } from "../fs/outside-grants";
 import { validFileName } from "./file-io";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 
@@ -135,17 +137,73 @@ export function absoluteFilePath(asked: string): string {
   return cleanPath;
 }
 
-function refuseNetworkRead(asked: string, ...cleaned: string[]): void {
-  const forms = [asked, ...cleaned].flatMap((p) => [p, path.posix.normalize(p)]);
-  if (forms.some((p) => isNetworkOrDevicePath(p) || isAutoMountPath(p))) {
-    throw forbidden(`${asked} is a network or device path: it is not read from another device`);
+function readForms(asked: string, cleaned: readonly string[]): string[] {
+  return [asked, ...cleaned].flatMap((p) => [p, path.posix.normalize(p)]);
+}
+
+function refuseDeviceRead(asked: string, absolute: string, done = "read"): void {
+  if (readForms(asked, [absolute]).some(isDevicePath)) {
+    throw forbidden(`${asked} is a device path: it is not ${done} from another device`);
   }
 }
 
-export function absoluteReadPath(asked: string): string {
+export function namesNetworkPath(asked: string, ...cleaned: string[]): boolean {
+  return readForms(asked, cleaned).some((p) => isNetworkOrDevicePath(p) || isAutoMountPath(p));
+}
+
+function refuseNetworkRead(asked: string, absolute?: string, done = "read"): void {
+  if (namesNetworkPath(asked, ...(absolute === undefined ? [] : [absolute]))) {
+    throw forbidden(`${asked} is a network or device path: it is not ${done} from another device`);
+  }
+}
+
+export function absoluteReadPath(asked: string, consented = false): string {
   const absolute = absoluteFilePath(asked);
-  refuseNetworkRead(asked, absolute);
+  refuseDeviceRead(asked, absolute);
+  if (!consented) refuseNetworkRead(asked, absolute);
   return absolute;
+}
+
+function inNetworkFolder(windows: boolean, absolute: string, folders: readonly string[]): boolean {
+  if (!windows) {
+    const target = clean(POSIX, absolute);
+    return (
+      isAutoMountPath(target) &&
+      folders.some((folder) => {
+        const outer = clean(POSIX, folder);
+        return isAutoMountPath(outer) && within(POSIX, outer, target);
+      })
+    );
+  }
+  if (windowsPathKind(absolute) !== "unc") return false;
+  const target = asciiLower(clean(WINDOWS, absolute));
+  return folders.some((folder) => {
+    const outer = clean(WINDOWS, folder);
+    if (windowsPathKind(outer) !== "unc") return false;
+    const key = asciiLower(outer);
+    return target === key || target.startsWith(key.endsWith("\\") ? key : `${key}\\`);
+  });
+}
+
+export function refuseOutsideRead(
+  windows: boolean,
+  folders: readonly string[],
+  asked: string,
+  absolute: string,
+  done: "read" | "written" = "read",
+): void {
+  refuseDeviceRead(asked, absolute, done);
+  if (inNetworkFolder(windows, absolute, folders)) return;
+  refuseNetworkRead(asked, absolute, done);
+}
+
+function refuseFolderRead(
+  root: string,
+  folders: readonly string[],
+  asked: string,
+  absolute: string,
+): void {
+  refuseOutsideRead(styleOf(root).windows, folders, asked, absolute);
 }
 
 export async function outsideFileSource(asked: string): Promise<string> {
@@ -183,7 +241,7 @@ async function placeToRead(
     if (!named.some((o) => same(clean(style, o)))) throw error;
     return { kind: "folder", absolute: wanted, output: true };
   }
-  if (place.kind === "folder") refuseNetworkRead(asked, place.absolute);
+  if (place.kind === "folder") refuseFolderRead(root, folders, asked, place.absolute);
   return place;
 }
 
@@ -265,7 +323,10 @@ async function realWithin(
       throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
     throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be resolved");
   });
-  const reals = await Promise.all(folders.map((f) => nodeFs.realpath(f).catch(() => null)));
+  const granting = folders.filter(
+    (f) => !namesNetworkPath(f) || inNetworkFolder(style.windows, absolute, [f]),
+  );
+  const reals = await Promise.all(granting.map((f) => nodeFs.realpath(f).catch(() => null)));
   const canonicalStyle = style.windows ? { ...style, windows: false } : style;
   if (!reals.some((f) => f && within(canonicalStyle, clean(style, f), clean(style, real)))) {
     throw forbidden(`${absolute} leads outside the workspace's folders`);
@@ -299,9 +360,9 @@ export async function listFiles(
 ): Promise<RpcResult<"files.list">> {
   const folders = anywhere ? [] : await files.folders(workspaceId);
   const place: Place = anywhere
-    ? { kind: "folder", absolute: absoluteReadPath(asked) }
+    ? { kind: "folder", absolute: absoluteReadPath(asked, approvedPath !== undefined) }
     : placeOf(root, folders, asked);
-  if (place.kind === "folder") refuseNetworkRead(asked, place.absolute);
+  if (!anywhere && place.kind === "folder") refuseFolderRead(root, folders, asked, place.absolute);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   if (!fs.readdirNoLinks)
@@ -400,7 +461,7 @@ export async function readFile(
   }
   const folders = anywhere ? [] : await files.folders(workspaceId);
   const place = anywhere
-    ? { kind: "folder" as const, absolute: absoluteReadPath(asked) }
+    ? { kind: "folder" as const, absolute: absoluteReadPath(asked, approvedPath !== undefined) }
     : await placeToRead(files, workspaceId, root, folders, asked);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);

@@ -9,6 +9,7 @@ import {
   CONSENT_AGENT_NAMES,
   consentAllowScopes,
   consentDetailsOf,
+  consentNamesNetworkPath,
 } from "../../../shared/cli/consent-copy";
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -223,6 +224,9 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {copy.body}
         </pre>
+      )}
+      {change && consentNamesNetworkPath(change) && (
+        <p className="mt-2 text-app-ui-sm text-foreground">{t("agentCli.consent.networkPath")}</p>
       )}
       {prompt?.timeoutMs !== undefined && (
         <p className="mt-2 text-app-ui-sm text-muted-foreground">

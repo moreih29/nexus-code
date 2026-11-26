@@ -27,7 +27,7 @@ export function isWindowsNetworkPath(path: string): boolean {
   return process.platform === "win32" && isNetworkOrDevicePath(path);
 }
 
-function asciiLower(text: string): string {
+export function asciiLower(text: string): string {
   return text.replace(/[A-Z]/g, (upper) => String.fromCharCode(upper.charCodeAt(0) + 32));
 }
 
