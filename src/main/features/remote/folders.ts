@@ -10,6 +10,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { isAutoMountPath, isNetworkOrDevicePath } from "../../../shared/fs/outside-url";
 import { RpcFailure } from "./room";
 
 const run = promisify(execFile);
@@ -38,6 +39,7 @@ export async function listFolders(
     throw new RpcFailure(RpcErrorCode.InvalidParams, "the path is to be absolute");
   }
   const dir = resolve(asked ?? home);
+  if (asked !== undefined) refuseListedNetworkPath(asked, dir, system.platform);
   let read: Dirent[];
   try {
     read = await readdir(dir, { withFileTypes: true });
@@ -101,13 +103,25 @@ export async function folderToAdd(
   return dir;
 }
 
+function networkPathRefused(): RpcFailure {
+  return new RpcFailure(
+    RpcErrorCode.InvalidParams,
+    "a network or device path is not taken from another device",
+  );
+}
+
 export function refuseNetworkPath(asked: string, platform: NodeJS.Platform): void {
   if (platform === "win32" ? /^[\\/]{2}/.test(asked) : asked.startsWith("\\\\")) {
-    throw new RpcFailure(
-      RpcErrorCode.InvalidParams,
-      "a network or device path is not taken from another device",
-    );
+    throw networkPathRefused();
   }
+}
+
+function refuseListedNetworkPath(asked: string, dir: string, platform: NodeJS.Platform): void {
+  const refused =
+    platform === "win32"
+      ? isNetworkOrDevicePath(asked) || isNetworkOrDevicePath(dir)
+      : isAutoMountPath(asked) || isAutoMountPath(dir);
+  if (refused) throw networkPathRefused();
 }
 
 const POSIX_SYSTEM = [

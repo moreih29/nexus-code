@@ -504,14 +504,17 @@ describe("a Windows chat's file on a network share", () => {
       path,
     });
 
-  test("is read when a chat names it, written with either separator, in any case", async () => {
+  test("is not read for another device, though a chat names it, however it is written", async () => {
     for (const path of [
       unc,
       String.raw`\\localhost\C$\tmp\x\unc.txt`,
       "//localhost/C$/tmp/x/../x/unc.txt",
       String.raw`\\LOCALHOST\c$\TMP\x\unc.txt`,
     ]) {
-      expect(await read([unc], path)).toMatchObject({ kind: "text", text: "on the share" });
+      await expect(read([unc], path)).rejects.toMatchObject({
+        code: 1002,
+        message: `${path} is a network or device path: it is not read from another device`,
+      });
     }
   });
 
