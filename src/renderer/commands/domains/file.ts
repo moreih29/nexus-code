@@ -1,5 +1,5 @@
 import i18next from "i18next";
-import { toSlashPath } from "../../../shared/fs/drive-path";
+import { slashWindowsPath } from "../../../shared/fs/relative-path";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { showToast } from "../../components/ui/toast";
@@ -121,7 +121,7 @@ export function registerFileCommands(): Array<() => void> {
         await ipcCallResult("dialog", "showOpenFile", {}),
       );
       if (canceled || filePaths.length === 0) return;
-      const filePath = toSlashPath(filePaths[0]);
+      const filePath = slashWindowsPath(filePaths[0]);
       const rootPath = useWorkspacesStore
         .getState()
         .workspaces.find((w) => w.id === wsId)?.rootPath;
