@@ -66,5 +66,5 @@ export function isNetworkLink(target: string): boolean {
   const host = /^\/\/([^/]*)/.exec(rest)?.[1];
   if (host === undefined) return false;
   if (host !== "" && host.toLowerCase() !== "localhost") return true;
-  return isDevicePath(rest.slice(2 + host.length));
+  return isNetworkOrDevicePath(rest.slice(2 + host.length));
 }

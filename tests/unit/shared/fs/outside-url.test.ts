@@ -60,6 +60,11 @@ describe("isNetworkLink", () => {
       "file:///%3F%3F/UNC/server/share/a.txt",
       "file://localhost/??/UNC/server/share/a.txt",
       String.raw`file:\\\??\UNC\server\share`,
+      "file://localhost//server/share/a.txt",
+      "FILE://LOCALHOST//server/share/a.txt",
+      String.raw`file://localhost/\server\share\a.txt`,
+      "file://localhost%2F%2Fserver/share/a.txt",
+      "file://///server/share/a.txt",
     ]) {
       expect([link, isNetworkLink(link)]).toEqual([link, true]);
     }
