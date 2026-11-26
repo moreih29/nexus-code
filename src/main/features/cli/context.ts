@@ -58,7 +58,7 @@ export interface CliDevice {
 
 export interface CliRemote {
   inRoom(): boolean;
-  devices(): Promise<CliDevice[]>;
+  devices(signal?: AbortSignal): Promise<CliDevice[] | null>;
   alias?(deviceId: string, alias: string | null): Promise<void>;
   request<M extends RpcMethod>(
     deviceId: string,

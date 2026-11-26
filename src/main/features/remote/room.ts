@@ -47,11 +47,12 @@ import {
 } from "../../../shared/validation/error-message";
 import { frameStallDeadline } from "./frame-stall";
 import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
-import type {
-  RelayConnectionDeps,
-  RelayRecoveryReason,
-  RelayStatus,
-  RelayStopReason,
+import {
+  type RelayConnectionDeps,
+  type RelayRecoveryReason,
+  type RelayStatus,
+  type RelayStopReason,
+  SOCKET_OPEN_TIMEOUT_MS,
 } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
@@ -72,6 +73,7 @@ const HELD_CHAT_REQUESTS: ReadonlySet<RpcMethod> = new Set([
 ]);
 const HELLO_RETRY_INTERVAL_MS = 5_000;
 const HELLO_WAIT_MS = 3_000;
+export const ROOM_READY_WAIT_MS = 3_000;
 const WARNING_INTERVAL_MS = 30_000;
 const RECENT_REPLY_LIMIT = 200;
 const PEER_PROBE_MS = 5_000;
@@ -314,6 +316,8 @@ export class RemoteRoom {
   private readonly fileReadBudget = new FileReadBudget(8, 32);
   private status: RoomStatus = "off";
   private peers = new Map<string, RoomPeer>();
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly readyWaiters = new Set<(ready: boolean) => void>();
   private seq = 0;
   private greeted = false;
   private nextId = 1;
@@ -345,6 +349,11 @@ export class RemoteRoom {
         this.renew("the connection to the room was lost");
         this.seq = 0;
         this.greeted = false;
+        this.presenceTimer = setTimeout(
+          () => this.connection.recover("presence-timeout"),
+          SOCKET_OPEN_TIMEOUT_MS,
+        );
+        this.presenceTimer.unref?.();
       },
       onFrame: (frame) => this.onFrame(frame),
       onStatus: (status) => this.onStatus(status),
@@ -357,6 +366,7 @@ export class RemoteRoom {
   }
 
   stop(reason?: RelayStopReason): void {
+    this.clearPresenceTimer();
     this.connection.stop(reason);
     this.interruptRequests("left the room");
     this.disconnected();
@@ -417,6 +427,29 @@ export class RemoteRoom {
     return { status: this.status, peers: [...this.peers.values()] };
   }
 
+  private connecting(): boolean {
+    return this.status === "connecting" || this.status === "waiting";
+  }
+
+  async waitUntilReady(signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    if (!this.connecting()) return this.status === "online";
+    const ready = await new Promise<boolean>((resolve) => {
+      const finish = (ready: boolean) => {
+        clearTimeout(timer);
+        this.readyWaiters.delete(finish);
+        signal?.removeEventListener("abort", abort);
+        resolve(ready);
+      };
+      const abort = () => finish(false);
+      const timer = setTimeout(() => finish(false), ROOM_READY_WAIT_MS);
+      this.readyWaiters.add(finish);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+    signal?.throwIfAborted();
+    return ready;
+  }
+
   private serves(): readonly Capability[] {
     const { serves } = this.deps;
     return typeof serves === "function" ? serves() : serves;
@@ -442,22 +475,21 @@ export class RemoteRoom {
     if (!fitsInFrame(message)) {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`);
     }
-    const heard = this.heard.get(to);
-    const knownEpoch = heard?.departed ? undefined : heard?.epoch;
+    const connecting = this.connecting();
+    const known = connecting ? this.heard.get(to) : undefined;
+    const awaitingReconnect = known !== undefined && !known.departed && RETRYABLE_READS.has(method);
+    const ready = !connecting || awaitingReconnect || (await this.waitUntilReady(signal));
     const here = this.status === "online";
-    const peer = here ? knownEpoch : undefined;
-    const online = this.peers.get(to)?.online;
-    const awaitingReconnect =
-      (this.status === "connecting" || this.status === "waiting") &&
-      knownEpoch !== undefined &&
-      RETRYABLE_READS.has(method);
-    if (!here && !awaitingReconnect) {
+    if (!ready || (!here && !awaitingReconnect)) {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
         "not in the room",
         method === "chat.send" ? { outcome: "rejected" } : undefined,
       );
     }
+    const heard = this.heard.get(to);
+    const peer = here && !heard?.departed ? heard?.epoch : undefined;
+    const online = this.peers.get(to)?.online;
     if (here && (online === false || (!peer && online === undefined))) {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
@@ -836,26 +868,33 @@ export class RemoteRoom {
   }
 
   private onStatus(status: RelayStatus): void {
+    if (status === "online") return;
+    this.clearPresenceTimer();
     const wasOnline = this.status === "online";
     this.status = status;
-    if (status !== "online") {
-      const reconnecting = status === "waiting" || status === "connecting";
-      if (wasOnline || !reconnecting) {
-        this.interruptRequests(
-          status === "stopped" ? "left the room" : "the connection to the room was lost",
-          reconnecting ? "local-reconnected" : undefined,
-        );
-      }
-      if (wasOnline) this.resetQueues();
-      this.disconnected();
-      for (const peer of this.peers.values()) peer.online = false;
-      this.cancelQueuedReads();
+    const reconnecting = this.connecting();
+    if (wasOnline || !reconnecting) {
+      this.interruptRequests(
+        status === "stopped" ? "left the room" : "the connection to the room was lost",
+        reconnecting ? "local-reconnected" : undefined,
+      );
     }
+    if (wasOnline) this.resetQueues();
+    this.disconnected();
+    for (const peer of this.peers.values()) peer.online = false;
+    this.cancelQueuedReads();
     this.changed();
+  }
+
+  private clearPresenceTimer(): void {
+    clearTimeout(this.presenceTimer);
+    this.presenceTimer = undefined;
   }
 
   private onFrame(frame: ServerFrame): void {
     if (frame.t === "presence") {
+      if (this.status !== "online" && this.presenceTimer === undefined) return;
+      this.clearPresenceTimer();
       this.connection.healthy();
       const next = new Map<string, RoomPeer>();
       for (const d of frame.devices) {
@@ -884,6 +923,7 @@ export class RemoteRoom {
       }
       const previous = this.peers;
       this.peers = next;
+      this.status = "online";
       this.deps.onPresence?.([...next.values()]);
       for (const id of this.helloRetryAt.keys()) if (!next.has(id)) this.helloRetryAt.delete(id);
       this.cancelQueuedReads();
@@ -1371,6 +1411,9 @@ export class RemoteRoom {
 
   private changed(): void {
     this.deps.onChange(this.state());
+    if (!this.connecting()) {
+      for (const finish of this.readyWaiters) finish(this.status === "online");
+    }
   }
 }
 

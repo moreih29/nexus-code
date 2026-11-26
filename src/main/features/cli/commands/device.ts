@@ -163,7 +163,7 @@ export async function peerSessionRows(
 export async function otherSessionsHint(ctx: CliContext): Promise<string> {
   if (!ctx.services.remote.inRoom()) return "";
   const counted = (async () => {
-    const devices = (await ctx.services.remote.devices()).filter((d) => !d.self && d.online);
+    const devices = (await listDevices(ctx)).filter((d) => !d.self && d.online);
     const counts = await Promise.all(
       devices.map((device) =>
         peerSessions(ctx, device)

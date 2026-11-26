@@ -466,7 +466,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const remote: CliRemote = {
     inRoom: () => peers.inRoom,
-    devices: async () => peers.devices,
+    devices: async () => (peers.inRoom ? peers.devices : null),
     request: async (deviceId, method, params, timeoutMs, signal) => {
       peers.requests.push({
         deviceId,
