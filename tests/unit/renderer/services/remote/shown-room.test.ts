@@ -14,14 +14,14 @@ const peer = (id: string, online: boolean): RoomPeer => ({
 });
 const room = (status: RoomState["status"], ...peers: RoomPeer[]): RoomState => ({ status, peers });
 
-function shownAfter(steps: [number, RoomState][], at: number) {
+function shownAfter(steps: [number, RoomState][], at: number, deviceId?: string) {
   const drops = new Map<string, number>();
   let prev: RoomState | null = null;
   for (const [time, next] of steps) {
     noteDrops(prev, next, drops, time);
     prev = next;
   }
-  return shownRoom(prev, drops, at);
+  return shownRoom(prev, drops, at, deviceId);
 }
 
 describe("the room as the screen shows it", () => {
@@ -64,6 +64,17 @@ describe("the room as the screen shows it", () => {
     ];
     expect(shownAfter(steps, 1000).room?.peers[0]?.online).toBe(true);
     expect(shownAfter(steps, 500 + DROP_SHOWN_AFTER_MS).room?.peers[0]?.online).toBe(false);
+  });
+
+  test("a chat uses its own peer's deadline when two devices drop at different times", () => {
+    const steps: [number, RoomState][] = [
+      [0, room("online", peer("a", true), peer("b", true))],
+      [500, room("online", peer("a", false), peer("b", true))],
+      [1000, room("online", peer("a", false), peer("b", false))],
+      [2000, room("online", peer("a", false), peer("b", true))],
+    ];
+    expect(shownAfter(steps.slice(0, 3), 1100, "b").until).toBe(1000 + DROP_SHOWN_AFTER_MS);
+    expect(shownAfter(steps, 2100, "b").until).toBeUndefined();
   });
 
   test("signed out, replaced or outdated shows at once", () => {

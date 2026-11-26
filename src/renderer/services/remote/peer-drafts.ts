@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction, useEffect, useMemo } from "react";
 import { create } from "zustand";
-import type { ComposerAttachment } from "../../components/chat/composer";
+import type { ComposerAttachment, ComposerContents } from "../../components/chat/composer";
+import { canRestoreFailedDraft } from "../chat/composer-submit";
 import type { ImageBlock } from "../chat/model";
 import type { ComposerDraft } from "../chat/store";
 
@@ -12,12 +13,11 @@ interface PeerChat {
 
 const keyOf = ({ deviceId, workspaceId, tabId }: PeerChat) => `${deviceId}:${workspaceId}:${tabId}`;
 
-type Contents = Pick<ComposerDraft, "text" | "images"> & { files: ComposerAttachment[] };
-const empty: Contents = { text: "", images: [], files: [] };
+const empty: ComposerContents = { text: "", images: [], files: [] };
 
 const usePeerDrafts = create<{
   drafts: Readonly<Record<string, ComposerDraft>>;
-  contents: Readonly<Record<string, Contents>>;
+  contents: Readonly<Record<string, ComposerContents>>;
 }>(() => ({ drafts: {}, contents: {} }));
 
 export function putPeerDraft(chat: PeerChat, text: string, images: ImageBlock[] = []): void {
@@ -66,10 +66,15 @@ export function applyPeerDraft(chat: PeerChat): void {
 export function restorePeerComposition(
   chat: PeerChat,
   draft: { text: string; images: ImageBlock[]; files: readonly ComposerAttachment[] },
-): void {
+  onlyIfEmpty = false,
+): boolean {
   const key = keyOf(chat);
+  let restored = false;
   usePeerDrafts.setState((state) => {
     const current = state.contents[key] ?? empty;
+    if (onlyIfEmpty && (state.drafts[key] || !canRestoreFailedDraft(current, "failed")))
+      return state;
+    restored = true;
     return {
       contents: {
         ...state.contents,
@@ -81,20 +86,22 @@ export function restorePeerComposition(
       },
     };
   });
+  return restored;
 }
 
-export function peerContentsOf(chat: PeerChat): Contents {
+export function peerContentsOf(chat: PeerChat): ComposerContents {
   return usePeerDrafts.getState().contents[keyOf(chat)] ?? empty;
 }
 
-function setContents<K extends keyof Contents>(
+function setContents<K extends keyof ComposerContents>(
   key: string,
   field: K,
-  action: SetStateAction<Contents[K]>,
+  action: SetStateAction<ComposerContents[K]>,
 ): void {
   usePeerDrafts.setState((state) => {
     const current = state.contents[key] ?? empty;
     const update = typeof action === "function" ? action(current[field]) : action;
+    if (update === current[field]) return state;
     const next = { ...current, [field]: update };
     if (next.text || next.images.length > 0 || next.files.length > 0) {
       return { contents: { ...state.contents, [key]: next } };
@@ -104,10 +111,21 @@ function setContents<K extends keyof Contents>(
   });
 }
 
-export function usePeerComposition(chat: PeerChat): Contents & {
+export function clearPeerComposition(chat: PeerChat, draft: ComposerContents): void {
+  const key = keyOf(chat);
+  usePeerDrafts.setState((state) => {
+    if (state.contents[key] !== draft) return state;
+    const { [key]: _submitted, ...contents } = state.contents;
+    return { contents };
+  });
+}
+
+export function usePeerComposition(chat: PeerChat): ComposerContents & {
   setText: Dispatch<SetStateAction<string>>;
   setImages: Dispatch<SetStateAction<ImageBlock[]>>;
   setFiles: Dispatch<SetStateAction<ComposerAttachment[]>>;
+  current(): ComposerContents;
+  clearSubmitted(draft: ComposerContents): void;
 } {
   const { deviceId, workspaceId, tabId } = chat;
   const key = keyOf(chat);
@@ -121,8 +139,11 @@ export function usePeerComposition(chat: PeerChat): Contents & {
       setText: (action: SetStateAction<string>) => setContents(key, "text", action),
       setImages: (action: SetStateAction<ImageBlock[]>) => setContents(key, "images", action),
       setFiles: (action: SetStateAction<ComposerAttachment[]>) => setContents(key, "files", action),
+      current: () => usePeerDrafts.getState().contents[key] ?? empty,
+      clearSubmitted: (draft: ComposerContents) =>
+        clearPeerComposition({ deviceId, workspaceId, tabId }, draft),
     }),
-    [key],
+    [deviceId, workspaceId, tabId, key],
   );
   return { ...contents, ...setters };
 }

@@ -50,6 +50,7 @@ import {
   dispatchQueuedMessage,
   isChatWriteRejected,
   type QueuedMessage,
+  unconfirmedMessage,
 } from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
 import { backgroundIdOf, sandboxOn } from "./command-data";
@@ -1417,6 +1418,10 @@ export class ChatController {
     return this.sendMessage(text, images, true, from, id);
   }
 
+  async submitLocal(text: string, images: ImageBlock[], now: boolean): Promise<void> {
+    await this.sendMessage(text, images, now, undefined, undefined, false, true);
+  }
+
   async readHeldNow(): Promise<void> {
     if (this.supports("background_tasks")) {
       const result = await this.request("background_tasks", {}).catch(() => undefined);
@@ -1437,6 +1442,7 @@ export class ChatController {
     from?: RelaySender,
     id?: string,
     queued = false,
+    localSubmission = false,
   ): Promise<undefined> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     await this.initializing;
@@ -1459,6 +1465,15 @@ export class ChatController {
       await this.write(message);
       this.freshPromptSent = true;
       this.flushNow();
+    } catch (error) {
+      if (!localSubmission || isChatWriteRejected(error) || this.disposed) throw error;
+      const uuid = String(message.uuid);
+      this.flushNow();
+      if (!this.sawQueuedMessage(uuid)) {
+        const pending = unconfirmedMessage({ id: uuid, text, images }, error);
+        this.update((prev) => ({ ...prev, queue: [...prev.queue, pending] }));
+      }
+      return;
     } finally {
       this.writingUserMessage -= 1;
     }
@@ -1532,9 +1547,7 @@ export class ChatController {
   }
 
   private sawQueuedMessage(id: string): boolean {
-    return this.state.model.items.some(
-      (item) => item.kind === "user" && item.state === "taken" && item.sentUuid === id,
-    );
+    return this.state.model.items.some((item) => item.kind === "user" && item.sentUuid === id);
   }
 
   async interrupt(): Promise<unknown> {

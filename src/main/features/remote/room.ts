@@ -429,10 +429,18 @@ export class RemoteRoom {
       knownEpoch !== undefined &&
       RETRYABLE_READS.has(method);
     if (!here && !awaitingReconnect) {
-      throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        "not in the room",
+        method === "chat.send" ? { outcome: "rejected" } : undefined,
+      );
     }
     if (here && (online === false || (!peer && !online))) {
-      throw new RpcFailure(RpcErrorCode.Unavailable, "that device is not in the room");
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        "that device is not in the room",
+        method === "chat.send" ? { outcome: "rejected" } : undefined,
+      );
     }
 
     const started = performance.now();
