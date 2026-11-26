@@ -22,6 +22,16 @@ import type {
 } from "../../../../src/shared/fs/types";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
+const WINDOWS = process.platform === "win32";
+const OUTSIDE_FILE = WINDOWS ? "D:/tmp/shot.png" : "/tmp/shot.png";
+const NT_PATHS = [
+  String.raw`\??\UNC\127.0.0.1\qa-none-46\a.txt`,
+  "/??/UNC/127.0.0.1/qa-none-46/a.txt",
+  String.raw`/??\UNC\127.0.0.1\qa-none-46\a.txt`,
+  String.raw`\??/UNC/127.0.0.1/qa-none-46/a.txt`,
+  String.raw`\??\C:\tmp\a.txt`,
+  String.raw`\??\unc\S\SH\a.txt`,
+];
 
 function makeProvider(overrides: Partial<FsProvider> = {}) {
   const readdir = mock(async (_relPath: string): Promise<DirEntry[]> => []);
@@ -95,9 +105,27 @@ function makeProvider(overrides: Partial<FsProvider> = {}) {
   };
 }
 
-function makeManager(provider: FsProvider) {
+type Location = { kind: "local"; rootPath: string } | { kind: "ssh"; remotePath: string };
+
+function makeManager(
+  provider: FsProvider,
+  location: Location = { kind: "local", rootPath: WINDOWS ? "C:/w" : "/w" },
+) {
   const getFs = mock(async (_id: string) => provider);
-  return { manager: { getFs }, getFs };
+  const list = mock(() => [{ id: WORKSPACE_ID, location }]);
+  return { manager: { getFs, list }, getFs };
+}
+
+function makeRangeProvider(overrides: Partial<FsProvider> = {}) {
+  const readAbsoluteRange = mock(
+    async (): Promise<FileReadBinaryResult> => ({
+      kind: "ok",
+      base64: "",
+      sizeBytes: 3,
+      mtime: "m",
+    }),
+  );
+  return { ...makeProvider({ readAbsoluteRange, ...overrides }), readAbsoluteRange };
 }
 
 describe("fs read handlers — provider delegation", () => {
@@ -161,8 +189,8 @@ describe("fs read handlers — provider delegation", () => {
     const { provider } = makeProvider({ readAbsoluteRange });
     const { manager } = makeManager(provider);
     const exists = outsideExistsHandler(manager as never);
-    expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath: "/tmp/shot.png" })).toBe(true);
-    expect(readAbsoluteRange.mock.calls).toEqual([["/tmp/shot.png", 0, 0]]);
+    expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath: OUTSIDE_FILE })).toBe(true);
+    expect(readAbsoluteRange.mock.calls).toEqual([[OUTSIDE_FILE, 0, 0]]);
   });
 
   it("outsideExistsHandler never reaches for a share, a device or a relative path", async () => {
@@ -262,5 +290,55 @@ describe("fs read handlers — provider delegation", () => {
       });
     }
     expect(readAbsolute).not.toHaveBeenCalled();
+  });
+
+  it("neither handler reaches for an NT-prefixed path, on any platform", async () => {
+    const { provider, readAbsolute, readAbsoluteRange } = makeRangeProvider();
+    const { manager, getFs } = makeManager(provider);
+    const exists = outsideExistsHandler(manager as never);
+    const read = readExternalHandler(manager as never);
+    for (const absolutePath of NT_PATHS) {
+      expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath })).toBe(false);
+      expect(await read({ workspaceId: WORKSPACE_ID, absolutePath })).toEqual({
+        kind: "missing",
+        reason: "not-found",
+      });
+    }
+    expect(getFs).not.toHaveBeenCalled();
+    expect(readAbsoluteRange).not.toHaveBeenCalled();
+    expect(readAbsolute).not.toHaveBeenCalled();
+  });
+
+  it.if(WINDOWS)("takes only drive paths outside a local Windows workspace", async () => {
+    const { provider, readAbsolute, readAbsoluteRange } = makeRangeProvider();
+    const { manager, getFs } = makeManager(provider);
+    const exists = outsideExistsHandler(manager as never);
+    const read = readExternalHandler(manager as never);
+    for (const absolutePath of ["/tmp/a.txt", String.raw`\tmp\a.txt`, "/%3F%3F/UNC/s/sh/a.txt"]) {
+      expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath })).toBe(false);
+      expect(await read({ workspaceId: WORKSPACE_ID, absolutePath })).toMatchObject({
+        kind: "missing",
+      });
+    }
+    expect(getFs).not.toHaveBeenCalled();
+    expect(readAbsoluteRange).not.toHaveBeenCalled();
+    expect(readAbsolute).not.toHaveBeenCalled();
+
+    for (const absolutePath of [String.raw`D:\out\a.txt`, "D:/out/a.txt"]) {
+      expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath })).toBe(true);
+      expect(await read({ workspaceId: WORKSPACE_ID, absolutePath })).toMatchObject({
+        kind: "ok",
+      });
+    }
+    expect(readAbsolute.mock.calls).toEqual([[String.raw`D:\out\a.txt`], ["D:/out/a.txt"]]);
+  });
+
+  it.if(WINDOWS)("still takes POSIX paths outside a remote workspace", async () => {
+    const { provider, readAbsolute } = makeRangeProvider({ kind: "ssh" });
+    const { manager } = makeManager(provider, { kind: "ssh", remotePath: "/home/u/w" });
+    const asked = { workspaceId: WORKSPACE_ID, absolutePath: "/etc/hosts" };
+    expect(await outsideExistsHandler(manager as never)(asked)).toBe(true);
+    expect(await readExternalHandler(manager as never)(asked)).toMatchObject({ kind: "ok" });
+    expect(readAbsolute.mock.calls).toEqual([["/etc/hosts"]]);
   });
 });

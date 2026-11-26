@@ -1,6 +1,7 @@
 import {
   isAbsoluteOutsidePath,
   isDevicePath,
+  isDrivePath,
   isNetworkOrDevicePath,
 } from "../../../../shared/fs/outside-url";
 import type {
@@ -24,6 +25,15 @@ import {
 import { isGuardedPeerViewFile } from "../read-guard";
 
 const c = ipcContract.fs.call;
+
+function localRootOf(manager: WorkspaceManager, workspaceId: string): string | null {
+  const location = manager.list().find(({ id }) => id === workspaceId)?.location;
+  return location?.kind === "local" ? location.rootPath : null;
+}
+
+function isWindowsLocal(manager: WorkspaceManager, workspaceId: string): boolean {
+  return process.platform === "win32" && localRootOf(manager, workspaceId) !== null;
+}
 
 export function readdirHandler(
   manager: WorkspaceManager,
@@ -139,6 +149,7 @@ export function outsideExistsHandler(
     ) {
       return false;
     }
+    if (isWindowsLocal(manager, workspaceId) && !isDrivePath(absolutePath)) return false;
     const fs = await manager.getFs(workspaceId);
     const read = await fs.readAbsoluteRange(absolutePath, 0, 0).catch(() => null);
     return read !== null && read.kind !== "missing";
@@ -151,6 +162,13 @@ export function readExternalHandler(
   return async (args: unknown): Promise<FileReadResult> => {
     const { workspaceId, absolutePath } = validateArgs(c.readExternal.args, args);
     if (isDevicePath(absolutePath) || absolutePath.includes("\0")) {
+      return { kind: "missing", reason: "not-found" };
+    }
+    if (
+      !isWindowsNetworkPath(absolutePath) &&
+      isWindowsLocal(manager, workspaceId) &&
+      !isDrivePath(absolutePath)
+    ) {
       return { kind: "missing", reason: "not-found" };
     }
     const path = isWindowsNetworkPath(absolutePath)
