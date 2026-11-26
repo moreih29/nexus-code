@@ -1369,7 +1369,8 @@
       "copy_path": "Copy path",
       "open_system": "Open in the system browser",
       "open_app_browser": "Open in the app's browser",
-      "copy_link": "Copy link"
+      "copy_link": "Copy link",
+      "network_path": "Network paths can't be opened."
     },
     "run": {
       "kind": "claude -p run",

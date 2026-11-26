@@ -1,10 +1,13 @@
+import i18next from "i18next";
 import { memo, useCallback, useMemo } from "react";
 import { type Components, defaultUrlTransform } from "react-markdown";
+import { isNetworkLink } from "../../../shared/fs/outside-url";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { ImageName, MarkdownBody } from "../ui/markdown-body";
+import { showToast } from "../ui/toast";
 import { LinkMenu, useChatLinks, useLinkPlaces } from "./chat-links";
 import { FileImage, ImageChip } from "./file-image";
 import { FileKindIcon } from "./file-kind-icon";
@@ -29,6 +32,10 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   const onLink = useCallback(
     (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
+      if (isNetworkLink(href)) {
+        showToast({ kind: "error", message: i18next.t("chat.links.network_path") });
+        return;
+      }
       const classified = classifyLinkHref(href, {
         currentFileAbsPath: `${cwd.replace(/\/$/, "")}/.chat`,
         workspaceRootAbsPath: rootPath,
@@ -87,6 +94,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
       },
       img({ src, alt }) {
         const label = <ImageName alt={alt} />;
+        if (typeof src === "string" && isNetworkLink(src)) return label;
         const places =
           typeof src === "string" && linkKind(src, cwd) === "file"
             ? placesOf(src, cwd).map((place) => place.path)
@@ -146,7 +154,7 @@ function FileLink({
 }) {
   const found = useFoundFiles(workspaceId, rootPath, places);
   const path = places.find((place) => found.has(place));
-  if (!path) return <span title={href}>{children}</span>;
+  if (!path) return isNetworkLink(href) ? link : <span title={href}>{children}</span>;
   return (
     <LinkMenu target={path} href={href} kind="file">
       {link}

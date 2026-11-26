@@ -1369,7 +1369,8 @@
       "copy_path": "경로 복사",
       "open_system": "시스템 브라우저에서 열기",
       "open_app_browser": "앱 브라우저에서 열기",
-      "copy_link": "링크 복사"
+      "copy_link": "링크 복사",
+      "network_path": "네트워크 경로는 열 수 없습니다."
     },
     "run": {
       "kind": "claude -p 실행",
