@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { RUN_ITEMS_SCHEMA } from "../../../../packages/remote-protocol/src";
 import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import { appErrorFailed } from "../../../shared/error/app-error";
 import { isUnder, shownPath } from "../../../shared/fs/relative-path";
@@ -675,6 +676,15 @@ function RemoteChatView({
   );
 
   const mediaAccess = usePeerChatAccess(deviceId);
+  const runId = shown?.run?.id;
+  const readsRunItems = usePeerSpeaks(deviceId, RUN_ITEMS_SCHEMA);
+  const loadRunImage = useMemo(
+    () =>
+      readsRunItems && runId !== undefined
+        ? peerImageLoader({ deviceId, workspaceId, tabId, runId }, mediaAccess, visible)
+        : null,
+    [deviceId, workspaceId, tabId, runId, mediaAccess, visible, readsRunItems],
+  );
   const loadImage = useMemo(
     () => peerImageLoader({ deviceId, workspaceId, tabId }, mediaAccess, visible),
     [deviceId, workspaceId, tabId, mediaAccess, visible],
@@ -686,11 +696,13 @@ function RemoteChatView({
   const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);
   useEffect(() => setPeerRoot(peerWorkspace, target.path), [peerWorkspace, target.path]);
   usePeerChatFileChanges(peerWorkspace, page.panel?.changedFiles ?? NO_CHANGES, model.tools);
-  const [look, setLook] = useState<QuickLookList | null>(null);
+  const [look, setLook] = useState<(QuickLookList & { runId?: string }) | null>(null);
   const links = useRemoteLinks(target, { model }, files, setLook, host?.openFileBeside);
   useEffect(() => {
-    if (!visible) setLook(null);
-  }, [visible]);
+    setLook((current) =>
+      visible && (current?.runId === undefined || current.runId === runId) ? current : null,
+    );
+  }, [visible, runId]);
 
   const goal = useRemoteGoal(page.panel?.goal, claude ? "claude" : "codex");
   const [, goalClosed] = useReducer((n: number) => n + 1, 0);
@@ -877,10 +889,13 @@ function RemoteChatView({
             >
               {shown?.run ? (
                 <RemotePrintRunPane
+                  key={shown.run.id}
                   target={target}
                   row={shown.run}
                   visible={visible}
                   controls={reachable}
+                  loadImage={loadRunImage}
+                  onLook={(list) => setLook({ ...list, runId })}
                 />
               ) : (
                 <MessageList
@@ -954,22 +969,26 @@ function RemoteChatView({
                 onClose={() => setRewinding(null)}
               />
             )}
-            {visible && look && (
-              <QuickLook
-                workspaceId={peerWorkspace}
-                peerRoot={target.path}
-                list={look}
-                area={lookAreaOf(rootRef.current)}
-                local={false}
-                onIndex={(index) => setLook({ ...look, index })}
-                onClose={() => setLook(null)}
-                openBesideInWorkspace={host !== null}
-                onOpenBeside={(path, options) => {
-                  if (!links.openBeside(path, options)) return false;
-                  setLook(null);
-                  return true;
-                }}
-              />
+            {visible && look && (look.runId === undefined || look.runId === runId) && (
+              <ImageLoaderContext.Provider
+                value={look.runId === undefined ? loadImage : loadRunImage}
+              >
+                <QuickLook
+                  workspaceId={peerWorkspace}
+                  peerRoot={target.path}
+                  list={look}
+                  area={lookAreaOf(rootRef.current)}
+                  local={false}
+                  onIndex={(index) => setLook({ ...look, index })}
+                  onClose={() => setLook(null)}
+                  openBesideInWorkspace={host !== null}
+                  onOpenBeside={(path, options) => {
+                    if (!links.openBeside(path, options)) return false;
+                    setLook(null);
+                    return true;
+                  }}
+                />
+              </ImageLoaderContext.Provider>
             )}
           </div>
         </ChatLinksContext.Provider>

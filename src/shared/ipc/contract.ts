@@ -154,6 +154,7 @@ import {
 } from "../remote/account";
 import {
   BugReportDraftSchema,
+  BugReportFieldsSchema,
   BugReportLocaleSchema,
   BugReportOutcomeSchema,
   ReportedErrorSchema,
@@ -2125,7 +2126,15 @@ const remoteContracts = {
         z.object({ locale: BugReportLocaleSchema, includeErrors: z.boolean() }),
         BugReportContextSchema,
       ),
-      sendBugReport: call(BugReportDraftSchema, BugReportOutcomeSchema),
+      bugReportDraft: call(z.object({ owner: z.string() }), BugReportFieldsSchema.nullable()),
+      saveBugReportDraft: call(
+        z.object({ owner: z.string(), fields: BugReportFieldsSchema }),
+        z.void(),
+      ),
+      sendBugReport: call(
+        BugReportDraftSchema.extend({ owner: z.string() }),
+        BugReportOutcomeSchema,
+      ),
       phonePushPolicy: call(z.void(), PhonePushPolicySchema),
       setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
       peerSessionsWatch: call(
@@ -2319,6 +2328,13 @@ const remoteContracts = {
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.instructions.set"].params.omit({ from: true })),
         RPC_METHODS["chat.instructions.set"].result,
+      ),
+      peerChatTool: call(
+        RPC_METHODS["chat.tool"].params.omit({ from: true, cli: true }).extend({
+          deviceId: z.string().min(1).max(64),
+          runId: z.string().max(200),
+        }),
+        RPC_METHODS["chat.tool"].result,
       ),
       peerChatImage: call(
         z

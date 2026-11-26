@@ -562,6 +562,44 @@ describe("another computer's chat, read from there", () => {
     expect(calls.map(({ args }) => args.ifVersion)).toEqual(Array(6).fill(undefined));
   });
 
+  test("chat and runs keep separate image requests and cached versions for an identical ref", async () => {
+    answer = (_method, args) => {
+      const version = String(args.runId ?? "chat");
+      return args.ifVersion === version
+        ? { mediaType: "image/png", data: "", version, notModified: true }
+        : { mediaType: "image/png", data: version, version };
+    };
+    const access = peerChatAccess("d1");
+    const chat = peerImageLoader(target, access);
+    const first = peerImageLoader({ ...target, runId: "run-1" }, access);
+    const second = peerImageLoader({ ...target, runId: "run-2" }, access);
+    expect(new Set([chat.access?.scope, first.access?.scope, second.access?.scope]).size).toBe(3);
+    const image = {
+      ...attachment(),
+      remote: { kind: "tool", index: 0, toolUseId: "same" },
+    } as const;
+    for (let round = 0; round < 2; round++) {
+      const result = await Promise.all([chat(image), first(image), second(image)]);
+      expect(result.map(({ data }) => data)).toEqual(["chat", "run-1", "run-2"]);
+    }
+    expect(calls.map(({ args }) => args.runId)).toEqual([
+      undefined,
+      "run-1",
+      "run-2",
+      undefined,
+      "run-1",
+      "run-2",
+    ]);
+    expect(calls.map(({ args }) => args.ifVersion)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      "chat",
+      "run-1",
+      "run-2",
+    ]);
+  });
+
   test("legacy hosts and held refs do not retain attachments", async () => {
     const load = peerImageLoader(target, peerChatAccess("d1"));
     answer = () => ({ mediaType: "image/jpeg", data: "AAA" });

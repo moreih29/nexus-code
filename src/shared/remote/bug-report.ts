@@ -29,10 +29,21 @@ export const ShownBugReportErrorsSchema = z.object({
 });
 export type ShownBugReportErrors = z.infer<typeof ShownBugReportErrorsSchema>;
 
-export const BugReportDraftSchema = z.object({
-  description: z.string().max(MAX_BUG_REPORT_DESCRIPTION * 8),
+export const MAX_BUG_REPORT_DRAFT_LENGTH = MAX_BUG_REPORT_DESCRIPTION * 8;
+
+export const BugReportFieldsSchema = z.object({
+  description: z.string().max(MAX_BUG_REPORT_DRAFT_LENGTH),
   contactOk: z.boolean(),
   includeErrors: z.boolean(),
+});
+export type BugReportFields = z.infer<typeof BugReportFieldsSchema>;
+export const EMPTY_BUG_REPORT_FIELDS: BugReportFields = {
+  description: "",
+  contactOk: false,
+  includeErrors: true,
+};
+
+export const BugReportDraftSchema = BugReportFieldsSchema.extend({
   locale: BugReportLocaleSchema,
   shown: ShownBugReportErrorsSchema.optional(),
 });

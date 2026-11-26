@@ -57,8 +57,10 @@ function failedOutcome(): BugReportOutcome {
   return { status: "failed", failure: "failed" };
 }
 
-export async function sendBugReport(draft: BugReportDraft): Promise<boolean> {
-  const result = await ipcCallResult("remote", "sendBugReport", draft).catch(() => null);
+export async function sendBugReport(owner: string, draft: BugReportDraft): Promise<boolean> {
+  const result = await ipcCallResult("remote", "sendBugReport", { ...draft, owner }).catch(
+    () => null,
+  );
   const outcome = result?.ok ? result.value : failedOutcome();
   if (outcome.status === "sent") {
     showToast({ kind: "info", message: i18next.t("settings:about.bugReport.sent") });
