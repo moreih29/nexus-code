@@ -374,19 +374,20 @@
     "stage_lines_text_only": "Only UTF-8 text files can be staged in part."
   },
   "browser": {
-    "load_failed": "Couldn’t load page",
+    "load_failed": "Couldn't load page",
     "page_stopped": "Page stopped",
     "retrying": "Retrying…",
     "load_error": {
       "connection_refused": "Connection refused",
       "name_not_resolved": "Address not found",
-      "timeout": "Connection timeout",
+      "timeout": "Connection timed out",
       "certificate": "Certificate error",
       "offline": "No internet connection",
       "blocked_address": "Address not allowed",
       "ssh_not_connected": "SSH disconnected",
       "port_forward_failed": "Port forwarding failed",
-      "unknown": "Load error ({{error}})"
+      "unknown": "Load error ({{error}})",
+      "view_creation_failed": "Browser tab setup failed"
     },
     "go_back": "Go back",
     "go_forward": "Go forward",

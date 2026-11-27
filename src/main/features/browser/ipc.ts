@@ -111,6 +111,7 @@ export function registerBrowserChannel(
           registry.create({ tabId, workspaceId, url, partition, win });
         } catch (error) {
           owners.delete(tabId);
+          if (registry.get(tabId)) registry.destroy({ tabId });
           return ipcErr("browser-create-failed", String(error), { category: "bug" });
         }
 

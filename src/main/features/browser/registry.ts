@@ -16,7 +16,10 @@ import {
 
 const logger = createLogger("browser-registry");
 
-export type BrowserHostWindow = Pick<BrowserWindow, "contentView" | "webContents">;
+export type BrowserHostWindow = Pick<
+  BrowserWindow,
+  "contentView" | "webContents" | "isDestroyed" | "isVisible" | "isMinimized"
+>;
 
 interface TabEntry {
   view: WebContentsView;
@@ -103,19 +106,6 @@ export class BrowserTabRegistry {
     const webPreferences = buildBrowserTabWebPreferences(partition);
     const view = new WebContentsView({ webPreferences });
 
-    installPermissionHandler(view.webContents.session, this.permissionDeps, workspaceId);
-    installLocalFileReadGuard(view.webContents);
-
-    installNavigationGuards(view.webContents, undefined, (popup) =>
-      this.popups.track(workspaceId, popup),
-    );
-
-    installAppScrollbarStyle(view.webContents);
-
-    showDialogsOverWindow(view.webContents, () => win as BrowserWindow);
-
-    view.webContents.setBackgroundThrottling(true);
-
     const entry: TabEntry = {
       view,
       win,
@@ -133,6 +123,15 @@ export class BrowserTabRegistry {
       devtoolsOpen: false,
     };
     this.tabs.set(tabId, entry);
+    installPermissionHandler(view.webContents.session, this.permissionDeps, workspaceId);
+    installLocalFileReadGuard(view.webContents);
+    installNavigationGuards(view.webContents, undefined, (popup) =>
+      this.popups.track(workspaceId, popup),
+    );
+    installAppScrollbarStyle(view.webContents);
+    showDialogsOverWindow(view.webContents, () => win as BrowserWindow);
+    view.webContents.setBackgroundThrottling(true);
+
     view.webContents.on("did-start-navigation", ({ isMainFrame, isSameDocument, url }) => {
       if (isMainFrame && !isSameDocument) entry.requestedUrl = url;
     });

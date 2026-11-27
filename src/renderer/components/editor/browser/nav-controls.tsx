@@ -8,6 +8,7 @@ interface NavControlsProps {
   tabId: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  onReload: () => void;
   disabled?: boolean;
 }
 
@@ -39,6 +40,7 @@ export function NavControls({
   tabId,
   canGoBack,
   canGoForward,
+  onReload,
   disabled = false,
 }: NavControlsProps) {
   const { t } = useTranslation();
@@ -48,10 +50,6 @@ export function NavControls({
 
   function handleForward() {
     void ipcCallResult("browser", "goForward", { tabId });
-  }
-
-  function handleReload() {
-    void ipcCallResult("browser", "reload", { tabId });
   }
 
   return (
@@ -69,7 +67,7 @@ export function NavControls({
       <NavButton label={t("browser.go_forward")} disabled={!canGoForward} onClick={handleForward}>
         <ChevronRight aria-hidden="true" />
       </NavButton>
-      <NavButton label={t("browser.reload_page")} disabled={false} onClick={handleReload}>
+      <NavButton label={t("browser.reload_page")} disabled={false} onClick={onReload}>
         <RotateCcw aria-hidden="true" />
       </NavButton>
     </div>

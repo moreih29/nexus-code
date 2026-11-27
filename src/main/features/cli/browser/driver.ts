@@ -1,7 +1,15 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
+import {
+  BaseWindow,
+  type Input,
+  type Rectangle,
+  screen,
+  type View,
+  type WebContents,
+} from "electron";
 import { firstMatch } from "../../../infra/security/bounded-match";
+import type { BrowserHostWindow } from "../../browser/registry";
 import { CliError } from "../context";
 import { DESCRIBE_COMPONENT, type PickedComponent } from "./component";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
@@ -78,11 +86,18 @@ export type BrowserWaitCondition =
 export interface BrowserPage {
   readonly contents: WebContents;
   readonly view: View;
+  readonly host: BrowserHostWindow;
   readonly active: boolean;
   readonly loadFailure?: { url: string; description: string } | null;
 }
 
+export interface BrowserViewState {
+  readonly visible: boolean;
+  readonly bounds: Rectangle | null;
+}
+
 export interface BrowserDriver {
+  viewState(tabId: string): BrowserViewState;
   snapshot(tabId: string, options: { maxLines: number; within?: string }): Promise<PageSnapshot>;
   click(
     tabId: string,
@@ -328,6 +343,26 @@ export class CdpBrowserDriver implements BrowserDriver {
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
     private readonly mac = process.platform === "darwin",
   ) {}
+
+  viewState(tabId: string): BrowserViewState {
+    const page = this.pageOf(tabId);
+    if (!page || page.contents.isDestroyed() || page.host.isDestroyed()) {
+      return { visible: false, bounds: null };
+    }
+    const { active, host, view } = page;
+    const bounds = view.getBounds();
+    return {
+      visible:
+        active &&
+        host.isVisible() &&
+        !host.isMinimized() &&
+        host.contentView.children.includes(view) &&
+        view.getVisible() &&
+        bounds.width > 0 &&
+        bounds.height > 0,
+      bounds,
+    };
+  }
 
   watch(tabId: string, contents: WebContents): void {
     this.consoles.set(tabId, { contents, log: watchConsole(contents) });

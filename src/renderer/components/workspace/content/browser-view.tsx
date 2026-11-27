@@ -9,11 +9,7 @@ import { PickButton } from "@/components/editor/browser/pick-button";
 import { UrlBar } from "@/components/editor/browser/url-bar";
 import { IconButton } from "@/components/ui/icon-button";
 import { ipcCallResult } from "@/ipc/client";
-import {
-  beginBrowserView,
-  endBrowserView,
-  resolveInitialBrowserUrl,
-} from "@/state/operations/browser";
+import { mountBrowserView, resolveInitialBrowserUrl } from "@/state/operations/browser";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { cn } from "@/utils/cn";
 
@@ -46,7 +42,16 @@ export function BrowserTabView({
   const placeholderRef = useRef<HTMLDivElement>(null);
   const devtoolsPlaceholderRef = useRef<HTMLDivElement>(null);
   const rafIdRef = useRef<number | null>(null);
-  const viewIdRef = useRef<string | null>(null);
+  const [createRequest, setCreateRequest] = useState(() => ({
+    url: resolveInitialBrowserUrl({ initialUrl, lastUrl, partition }) ?? BLANK_TAB_URL,
+  }));
+  const [creation, setCreation] = useState<{
+    request: typeof createRequest;
+    viewId: string | null;
+  }>();
+  const isCreating = creation?.request !== createRequest;
+  const viewId = isCreating ? null : (creation?.viewId ?? null);
+  const createFailed = creation?.viewId === null;
   const [devtoolsHeight, setDevtoolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
   const contentAreaRef = useRef<HTMLDivElement>(null);
   const endSplitterDragRef = useRef<(() => void) | null>(null);
@@ -56,8 +61,13 @@ export function BrowserTabView({
   const currentUrl = runtime?.currentUrl ?? lastUrl;
   const canGoBack = runtime?.canGoBack ?? false;
   const canGoForward = runtime?.canGoForward ?? false;
-  const isLoading = runtime?.isLoading ?? false;
-  const loadFailure = runtime?.loadFailure ?? null;
+  const isLoading = isCreating || (viewId !== null && runtime?.isLoading === true);
+  const loadFailure = createFailed
+    ? {
+        url: createRequest.url === BLANK_TAB_URL ? "" : createRequest.url,
+        description: "ERR_BROWSER_CREATE_FAILED",
+      }
+    : (runtime?.loadFailure ?? null);
   const snapshot = runtime?.snapshot ?? null;
   const devtoolsOpen = runtime?.devtoolsOpen ?? false;
   const urlFocusToken = runtime?.urlFocusToken ?? 0;
@@ -65,34 +75,16 @@ export function BrowserTabView({
   const showEmptyState =
     !loadFailure && (currentUrl === "" || currentUrl === BLANK_TAB_URL) && lastUrl === "";
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tabId/workspaceId/partition are stable for lifetime
-  useEffect(() => {
-    const viewId = beginBrowserView(workspaceId, tabId);
-    viewIdRef.current = viewId;
-
-    const url = resolveInitialBrowserUrl({ initialUrl, lastUrl, partition }) ?? BLANK_TAB_URL;
-    void ipcCallResult("browser", "create", {
-      tabId,
-      viewId,
-      workspaceId,
-      url,
-      partition,
-    });
-
-    return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-      endBrowserView(tabId, viewId);
-      viewIdRef.current = null;
-      void ipcCallResult("browser", "destroy", { tabId, viewId });
-    };
-  }, []);
+  useEffect(
+    () =>
+      mountBrowserView({ tabId, workspaceId, partition, url: createRequest.url }, (viewId) =>
+        setCreation({ request: createRequest, viewId }),
+      ),
+    [tabId, workspaceId, partition, createRequest],
+  );
 
   const sendBounds = useCallback(() => {
     rafIdRef.current = null;
-    const viewId = viewIdRef.current;
     if (viewId === null) return;
 
     const pageEl = placeholderRef.current;
@@ -120,7 +112,7 @@ export function BrowserTabView({
         height: rect.height,
       });
     }
-  }, [tabId]);
+  }, [tabId, viewId]);
 
   const scheduleSendBounds = useCallback(() => {
     if (rafIdRef.current !== null) {
@@ -130,13 +122,12 @@ export function BrowserTabView({
   }, [sendBounds]);
 
   useEffect(() => {
-    const viewId = viewIdRef.current;
     if (viewId === null) return;
     void ipcCallResult("browser", "setActive", { tabId, viewId, active: isActive });
     if (isActive) {
       scheduleSendBounds();
     }
-  }, [tabId, isActive, scheduleSendBounds]);
+  }, [tabId, viewId, isActive, scheduleSendBounds]);
 
   useEffect(() => {
     if (parentEl === null) return;
@@ -170,7 +161,17 @@ export function BrowserTabView({
   }, [scheduleSendBounds, devtoolsOpen]);
 
   function handleNavigate(url: string) {
+    if (viewId === null) {
+      setCreateRequest({ url });
+      return;
+    }
     void ipcCallResult("browser", "navigate", { tabId, url });
+  }
+
+  function handleReload() {
+    if (isCreating) return;
+    if (createFailed) setCreateRequest({ url: createRequest.url });
+    else void ipcCallResult("browser", "reload", { tabId });
   }
 
   function onSplitterPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -209,7 +210,12 @@ export function BrowserTabView({
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
-        <NavControls tabId={tabId} canGoBack={canGoBack} canGoForward={canGoForward} />
+        <NavControls
+          tabId={tabId}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onReload={handleReload}
+        />
         <UrlBar
           currentUrl={loadFailure?.url ?? currentUrl}
           isLoading={isLoading}
@@ -243,11 +249,7 @@ export function BrowserTabView({
             </div>
           )}
           {loadFailure && (
-            <BrowserLoadError
-              failure={loadFailure}
-              isLoading={isLoading}
-              onRetry={() => void ipcCallResult("browser", "reload", { tabId })}
-            />
+            <BrowserLoadError failure={loadFailure} isLoading={isLoading} onRetry={handleReload} />
           )}
           <div
             ref={placeholderRef}

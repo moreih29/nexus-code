@@ -15,6 +15,49 @@ async function nexus(
 }
 
 describe("reading a page", () => {
+  test("lists group selection and native view state separately in JSON", async () => {
+    const app = fakeApp();
+    const url = "http://localhost:5173/";
+    const shown = [
+      {
+        id: "aaaaaaaa-0000-4000-8000-000000000007",
+        type: "browser",
+        title: "Visible",
+        url,
+        shown: true,
+      },
+      {
+        id: "aaaaaaaa-0000-4000-8000-000000000008",
+        type: "browser",
+        title: "Parked",
+        url,
+        shown: true,
+      },
+    ] as const;
+    app.tabs[APP]?.push(...shown.map((tab) => ({ ...tab, groupId: "test-group" })));
+    const bounds = { x: 40, y: 70, width: 800, height: 600 };
+    app.browser.views.set(shown[0].id, { visible: true, bounds });
+
+    const result = await nexus(app, ["browser", "list", "--json"]);
+    const rows = JSON.parse(result.stdout).filter((row: { url: string }) => row.url === url);
+    expect(rows).toContainEqual({
+      id: shown[0].id,
+      title: "Visible",
+      url,
+      shown: true,
+      visible: true,
+      bounds,
+    });
+    expect(rows).toContainEqual({
+      id: shown[1].id,
+      title: "Parked",
+      url,
+      shown: true,
+      visible: false,
+      bounds: null,
+    });
+  });
+
   test("a Windows terminal's screenshot path follows Windows rules", async () => {
     const app = fakeApp();
     const result = await nexus(app, ["browser", "screenshot", "--out", "a.png"], {

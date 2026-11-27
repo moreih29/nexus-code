@@ -14,6 +14,7 @@ const networkReasons: Readonly<Partial<Record<number, string>>> = {
 };
 
 const otherReasons: Readonly<Partial<Record<string, string>>> = {
+  ERR_BROWSER_CREATE_FAILED: "view_creation_failed",
   ERR_DISALLOWED_URL_SCHEME: "blocked_address",
   ERR_SSH_NOT_CONNECTED: "ssh_not_connected",
   ERR_PORT_FORWARD_FAILED: "port_forward_failed",

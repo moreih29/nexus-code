@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type { BrowserWindow } from "electron";
+import type { BrowserWindow, Rectangle } from "electron";
 import {
   createIpcPair,
   mockGetAllWebContents,
@@ -49,9 +49,19 @@ class FakeWebContents extends EventEmitter {
 
 class FakeWebContentsView {
   readonly webContents = new FakeWebContents();
+  private bounds = { x: 0, y: 0, width: 0, height: 0 };
   visible = true;
   setVisible(visible: boolean): void {
     this.visible = visible;
+  }
+  getVisible(): boolean {
+    return this.visible;
+  }
+  setBounds(bounds: Rectangle): void {
+    this.bounds = bounds;
+  }
+  getBounds(): Rectangle {
+    return this.bounds;
   }
 }
 
@@ -97,12 +107,30 @@ describe("browser visibility IPC", () => {
       .map(({ args }) => args[2]);
   }
 
+  function browserDriver() {
+    return new CdpBrowserDriver((id) => {
+      const entry = registry.get(id);
+      return (
+        entry && {
+          contents: entry.view.webContents,
+          view: entry.view,
+          host: entry.win,
+          active: entry.active,
+          loadFailure: entry.loadFailure,
+        }
+      );
+    });
+  }
+
   beforeEach(async () => {
     resetInMemoryIpc();
     await setupInMemoryRouter();
     attached = new Set();
     registry = new BrowserTabRegistry();
     const contentView = {
+      get children() {
+        return [...attached];
+      },
       addChildView: (view: FakeWebContentsView) => attached.add(view),
       removeChildView: (view: FakeWebContentsView) => attached.delete(view),
     };
@@ -112,6 +140,9 @@ describe("browser visibility IPC", () => {
       (sender) =>
         ({
           contentView,
+          isDestroyed: () => false,
+          isVisible: () => true,
+          isMinimized: () => false,
           webContents: { id: sender.id, getZoomFactor: () => 1 },
         }) as unknown as BrowserWindow,
     );
@@ -149,6 +180,51 @@ describe("browser visibility IPC", () => {
       channel: "ipc:event",
       args: ["browser", "focused", { tabId, viewId: replacement }],
     });
+  });
+
+  test("closes a partially initialized view and allows a fresh create", async () => {
+    let failedContents: { isDestroyed(): boolean } | undefined;
+    const stopFailing = registry.onCreate((_tabId, contents) => {
+      failedContents = contents;
+      throw new Error("setup failed");
+    });
+    const failedViewId = crypto.randomUUID();
+    expect(await call("create", { ...createArgs, viewId: failedViewId })).toMatchObject({
+      ok: false,
+      kind: "browser-create-failed",
+    });
+    expect(failedContents?.isDestroyed()).toBe(true);
+    expect(registry.get(tabId)).toBeUndefined();
+
+    stopFailing();
+    const retryViewId = crypto.randomUUID();
+    expect(await call("create", { ...createArgs, viewId: retryViewId })).toMatchObject({
+      ok: true,
+    });
+    await call("destroy", { tabId, viewId: failedViewId });
+    await call("setActive", { tabId, viewId: retryViewId, active: true });
+    expect(attached.has(registry.get(tabId)?.view as unknown as FakeWebContentsView)).toBe(true);
+  });
+
+  test("reports native bounds independently of attachment and visibility", async () => {
+    const driver = browserDriver();
+    expect(driver.viewState("missing-tab")).toEqual({ visible: false, bounds: null });
+    expect(driver.viewState(tabId)).toEqual({
+      visible: false,
+      bounds: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    const bounds = { x: 92, y: 64, width: 800, height: 400 };
+    await call("setBounds", { tabId, viewId, ...bounds });
+    expect(driver.viewState(tabId)).toEqual({ visible: true, bounds });
+    attached.delete(page);
+    expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
+    attached.add(page);
+    await call("suspendAll", { captureSnapshot: false });
+    expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
+    await call("resumeAll", {});
+    expect(driver.viewState(tabId)).toEqual({ visible: true, bounds });
+    await setActive(false);
+    expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
   });
 
   test("restores a detached page and DevTools when they attach after resume", async () => {
@@ -249,15 +325,7 @@ describe("browser visibility IPC", () => {
     await setActive(true);
     expect(page.visible).toBe(false);
 
-    const driver = new CdpBrowserDriver(() => {
-      const entry = registry.get(tabId)!;
-      return {
-        contents: entry.view.webContents,
-        view: entry.view,
-        active: true,
-        loadFailure: entry.loadFailure,
-      };
-    });
+    const driver = browserDriver();
     await expect(driver.snapshot(tabId, { maxLines: 10 })).rejects.toThrow(
       `Could not load ${url}: ERR_NAME_NOT_RESOLVED`,
     );
@@ -335,15 +403,7 @@ describe("browser visibility IPC", () => {
       { tabId, viewId, failure },
     ]);
     expect(page.visible).toBe(false);
-    const driver = new CdpBrowserDriver(() => {
-      const entry = registry.get(tabId)!;
-      return {
-        contents: entry.view.webContents,
-        view: entry.view,
-        active: true,
-        loadFailure: entry.loadFailure,
-      };
-    });
+    const driver = browserDriver();
     await expect(driver.snapshot(tabId, { maxLines: 10 })).rejects.toThrow(
       `Page stopped at ${url}`,
     );

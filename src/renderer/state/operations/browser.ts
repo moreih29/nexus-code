@@ -3,8 +3,8 @@ import { Grid } from "@/engine";
 import { loopbackPort } from "../../../shared/pty/ports";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
 import { showToast } from "../../components/ui/toast";
-import { ipcListen } from "../../ipc/client";
-import type { ListenArg, ListenEvents } from "../../ipc/types";
+import { ipcCallResult, ipcListen } from "../../ipc/client";
+import type { CallArgs, ListenArg, ListenEvents } from "../../ipc/types";
 import { useBrowserRuntimeStore } from "../stores/browser-runtime";
 import { useLayoutStore } from "../stores/layout/store";
 import type { BrowserTabProps } from "../stores/tabs";
@@ -23,6 +23,31 @@ export function endBrowserView(tabId: string, viewId: string): void {
   if (browserViews.get(tabId)?.viewId !== viewId) return;
   browserViews.delete(tabId);
   useBrowserRuntimeStore.getState().removeRuntime(tabId);
+}
+
+export function mountBrowserView(
+  args: Omit<CallArgs<"browser", "create">, "viewId">,
+  onCreated: (viewId: string | null) => void,
+): () => void {
+  const { workspaceId, tabId } = args;
+  const viewId = beginBrowserView(workspaceId, tabId);
+
+  async function create(): Promise<boolean> {
+    try {
+      return (await ipcCallResult("browser", "create", { ...args, viewId })).ok;
+    } catch {
+      return false;
+    }
+  }
+
+  void create().then((ok) => {
+    if (browserViews.get(tabId)?.viewId === viewId) onCreated(ok ? viewId : null);
+  });
+
+  return () => {
+    endBrowserView(tabId, viewId);
+    void ipcCallResult("browser", "destroy", { tabId, viewId }).catch(() => {});
+  };
 }
 
 function listenToView<E extends Exclude<ListenEvents<"browser">, "downloaded">>(

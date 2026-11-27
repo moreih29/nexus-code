@@ -465,6 +465,7 @@ nexus browser devtools
 nexus browser list                # 이 워크스페이스의 브라우저 탭
 ```
 
+- `browser list --json`에서 `shown`은 탭 그룹에서 선택된 상태입니다. `visible`은 네이티브 페이지 뷰가 앱 창에 붙어 표시되는 상태입니다. `bounds`는 창 좌표의 `{x, y, width, height}`이며, 뷰가 없으면 `null`입니다.
 - `browser permissions revoke` 는 권한을 줄이기만 합니다. `--global` 은 설정 창 전역 권한의 이름(`media` · `geolocation` 등)을 끄고, `--site` 는 그 워크스페이스에서 사이트에 허용한 기억을 지웁니다. 허용하기와 차단 기억 지우기는 설정 창에서 사용자가 합니다.
 - `browser open /login` · `browser goto /login` 처럼 경로만 주면, 이 워크스페이스(작업이면 그 워크트리) 터미널의 프로그램이 연 포트로 엽니다. 포트를 미리 정해 둘 필요 없이 작업마다 따로 띄운 개발 서버를 찾아갑니다.
   - 열린 포트가 없거나 여러 개면 열지 않고 그 목록을 알려줍니다. 그때는 `localhost:5173/login` 처럼 포트를 적어 주세요.
