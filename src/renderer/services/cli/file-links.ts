@@ -1,5 +1,10 @@
 import type { FileLinkSource } from "../../../../packages/remote-protocol/src";
-import { cleanLinkHref, sameLinkHref, textLinksTo } from "../../../shared/chat/link-text";
+import {
+  cleanLinkHref,
+  linksTo,
+  linkTargetSet,
+  sameLinkHref,
+} from "../../../shared/chat/link-text";
 import { networkLinkPath } from "../../../shared/fs/outside-url";
 import { ipcCallResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -167,6 +172,31 @@ function inputTexts(input: unknown): string[] {
   });
 }
 
+const sourceTargets = new WeakMap<ChatSource, Map<string, ReadonlySet<string>>>();
+
+function targetsOf(
+  source: ChatSource,
+  key: string,
+  read: () => ReadonlySet<string>,
+): ReadonlySet<string> {
+  let known = sourceTargets.get(source);
+  if (!known) {
+    known = new Map();
+    sourceTargets.set(source, known);
+  }
+  const hit = known.get(key);
+  if (hit) return hit;
+  const made = read();
+  known.set(key, made);
+  return made;
+}
+
+function targetsIn(texts: readonly string[]): ReadonlySet<string> {
+  const targets = new Set<string>();
+  for (const text of texts) for (const target of linkTargetSet(text)) targets.add(target);
+  return targets;
+}
+
 export function linkCandidates(
   source: ChatSource,
   cwd: string,
@@ -181,24 +211,29 @@ export function linkCandidates(
     case "answer": {
       const text = textOfItem(itemOf(conversation, from.itemKey), "assistant");
       if (text === null) return null;
-      const touched = touchedFiles(tools, cwd);
-      const code = (written: string) => {
-        const path = resolveFilePath(written, cwd);
-        return path !== null && touched.has(pathKey(path));
-      };
-      return textLinksTo(text, href, { code }) ? found(placesFor(href, cwd, tools)) : null;
+      const targets = targetsOf(source, `answer\0${cwd}\0${from.itemKey}`, () => {
+        const touched = touchedFiles(tools, cwd);
+        const code = (written: string) => {
+          const path = resolveFilePath(written, cwd);
+          return path !== null && touched.has(pathKey(path));
+        };
+        return linkTargetSet(text, { code });
+      });
+      return linksTo(targets, href) ? found(placesFor(href, cwd, tools)) : null;
     }
     case "received":
     case "taskEnd": {
       const kind = from.kind === "received" ? "received" : "task_end";
       const text = textOfItem(itemOf(conversation, from.itemKey), kind);
-      return text !== null && textLinksTo(text, href) ? found(placesFor(href, cwd)) : null;
+      if (text === null) return null;
+      const targets = targetsOf(source, `${kind}\0${from.itemKey}`, () => linkTargetSet(text));
+      return linksTo(targets, href) ? found(placesFor(href, cwd)) : null;
     }
     case "streaming": {
-      const texts = streamedTexts(source.chat.model, items, from.messageId);
-      return texts.some((text) => textLinksTo(text, href))
-        ? found(placesFor(href, cwd, tools))
-        : null;
+      const targets = targetsOf(source, `streaming\0${from.messageId}`, () =>
+        targetsIn(streamedTexts(source.chat.model, items, from.messageId)),
+      );
+      return linksTo(targets, href) ? found(placesFor(href, cwd, tools)) : null;
     }
     case "tool": {
       const tool = tools[from.toolUseId];
@@ -207,12 +242,18 @@ export function linkCandidates(
       const input = (tool?.input ?? asking?.input) as Record<string, unknown> | null | undefined;
       const base = typeof input?.cwd === "string" && input.cwd !== "" ? input.cwd : cwd;
       const named = tool ? toolPaths(tool).some((path) => sameLinkHref(path, href)) : false;
-      const texts = [
-        tool?.result?.text ?? "",
-        ...inputTexts(tool?.input),
-        ...inputTexts(asking?.input),
-      ];
-      if (!named && !texts.some((text) => textLinksTo(text, href))) return null;
+      const linked = () =>
+        linksTo(
+          targetsOf(source, `tool\0${from.toolUseId}`, () =>
+            targetsIn([
+              tool?.result?.text ?? "",
+              ...inputTexts(tool?.input),
+              ...inputTexts(asking?.input),
+            ]),
+          ),
+          href,
+        );
+      if (!named && !linked()) return null;
       return found(placesFor(href, base));
     }
     case "user": {

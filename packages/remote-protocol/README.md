@@ -115,7 +115,7 @@ Source kinds. Each carries an optional `runId`, for a `claude -p` or `codex exec
 | `taskEnd` | `itemKey` | that task_end item's summary |
 | `streaming` | `messageId` | the reply being written, or once it ended, every assistant item with that `messageId`; gone after a rewind |
 | `tool` | `toolUseId` | that tool call's file path, notebook path or SendUserFile paths, or the links of its result |
-| `user` | `itemKey` | that user item's attachments. An `@path` the item ends with counts when it is inside the workspace's folder, even with no attach slot copy (`readable: true`; `files.grant` answers `{ path }` with no token). Outside the folder only the attach slot copy counts |
+| `user` | `itemKey` | that user item's attachments. Each `@path` at the end of the item's text counts when it is inside the workspace's folder, even with no attach slot copy (`readable: true`; `files.grant` answers `{ path }` with no token). Outside the folder only the attach slot copy counts |
 | `job` | `taskId` | that background job's output file |
 | `change` | – | the chat's (or run's) changed files |
 | `file` | `parent`, `grant?` | the parent file's text, its first `MAX_FILE_SOURCE_PARENT_BYTES` (5 MiB); `grant` is the parent's token when it needed one. Links inside PDFs and Office documents are not taken |
@@ -133,7 +133,14 @@ Then they must match exactly.
 
 A reader sends every inline or reference link and image as written: `href` is the target from the text (for a reference, from the definition it uses) with only `<...>` and a line tail taken off, not the target a Markdown parser gives. It shows a Windows path target as step 1 reads it.
 
-Links are inline link and image targets, read as CommonMark reads them (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through the definition they use, autolinks, and backtick paths of files a tool call touched. Apart from those backtick paths, nothing inside a code span or a fenced code block is a link. In an `.html` parent, `href` and `src` values count too.
+Links are inline link and image targets (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through a definition that starts a paragraph, autolinks, and backtick paths of files a tool call touched. In an `.html` parent, `href` and `src` values count too. Apart from those backtick paths, nothing inside code or an HTML comment is a link. The host finds them as CommonMark and GFM do in these respects:
+
+- Fenced code blocks with backticks or tildes, with LF or CRLF line ends, also inside `>` quotes and list items, opened at most three spaces past the quote or list item's content. A block left open runs to the end of its quote or list item, or of the text.
+- Code spans, and HTML comments in a line or opening a line (such a comment left open runs to the end of the text).
+- A link's text, a code span and a comment in a line end at a blank line and where another block starts (a quote, a list item, a heading, a fence, an HTML comment).
+- A `](` with no `[` before it is no link, nor is a link inside another link's text or an image's alt text.
+
+Where the host still differs: links in a block indented four spaces count, since telling such a block from a list item's text needs the whole list; links in HTML blocks other than comments count; bare `https://` and `www.` addresses are no links; a link whose target holds a backtick that a later backtick closes is taken as code.
 
 A two-slash, device or automount target goes through the host's network and device checks before it is resolved: the host never folds `//server/share/x` into the local `/server/share/x`.
 
@@ -146,7 +153,7 @@ A two-slash, device or automount target goes through the host's network and devi
 | `{ blocked: true }` | An automount, UNC or device path. Decided by the path's shape alone, without touching it, or a symbolic link found to point at one | An icon card; a tap asks for a grant |
 | `null` | Not there, or not in that source | No card; the link in the text stays |
 
-`readable: false` does not only mean outside the standing set. In a local workspace, a link through a symbolic link inside the workspace's folder that points outside it also answers `readable: false`, and `files.grant` for it is Forbidden with no `data` and gives no token.
+`readable: false` does not only mean outside the standing set. In a local workspace, a path inside the workspace's folder that a symbolic link takes outside it answers `readable: false`; `files.grant` for it is Forbidden, with no `data` and no token.
 
 If the call fails, the reader shows that it could not load. The host only stats files: it neither opens nor reads them, and tells no size or version. An entry a reader cannot parse becomes `null` (`FileResolvedSchema`). A reader checks an absolute path inside the workspace's folder itself (`files.list`, `files.read`), without `files.resolve`.
 

@@ -5,6 +5,8 @@ import {
   isWindowsPathTarget,
   linkDestination,
   linkHrefOf,
+  linksTo,
+  linkTargetSet,
   linkTargetsIn,
   sameLinkHref,
   textLinksTo,
@@ -37,6 +39,7 @@ describe("a link as another device sends it and as a chat wrote it", () => {
     const text = [
       'See [a](docs/a.md#L3) and ![chart](<out/my chart.png> "title") and [notes][ref].',
       "Also </tmp/auto.txt> and https://example.com/x.",
+      "",
       "[ref]: ../notes/ref.md",
       "[unused]: ../notes/unused.md",
       "<a href=\"page.html\">x</a> <img src='pic.png'>",
@@ -122,4 +125,64 @@ describe("a link as another device sends it and as a chat wrote it", () => {
     expect(textLinksTo(text, "/tmp/out.txt")).toBe(false);
     expect(textLinksTo(text, "/tmp/out.txt", { code: (w) => w === "/tmp/out.txt" })).toBe(true);
   });
+});
+
+function elapsed(run: () => unknown): number {
+  const started = performance.now();
+  run();
+  return performance.now() - started;
+}
+
+const BOUND_MS = 2000;
+const LONG_TEST_MS = 120_000;
+
+describe("reading a long text takes time in line with its length", () => {
+  test.each([
+    ["label-less ](x) repeated", "](x)".repeat(40_000), 0],
+    ["table rows with a](b) in a cell", "| a](b) | c |\n".repeat(15_000), 0],
+    ["one paragraph of x](y)", "x](y) ".repeat(30_000), 0],
+    [
+      "40000 definitions and 40000 links",
+      `${Array.from({ length: 40_000 }, (_, i) => `[d${i}]: /x${i}`).join("\n")}\n\n${"[a](/b) ".repeat(40_000)}`,
+      40_000,
+    ],
+    [
+      "3 MB of backtick runs that all differ in length",
+      (() => {
+        let runs = "";
+        for (let size = 1; runs.length < 3_000_000; size++) runs += `${"`".repeat(size)}a`;
+        return runs;
+      })(),
+      0,
+    ],
+    ["CRLF paragraphs of ](x)", "a](x)\r\n\r\n".repeat(40_000), 0],
+    ["unclosed inline comments", "x <!-- [a](/b) ".repeat(40_000), 40_000],
+  ])(
+    "%s",
+    (_name, text, count) => {
+      let links = 0;
+      expect(elapsed(() => (links = writtenLinksIn(text).length))).toBeLessThan(BOUND_MS);
+      expect(links).toBe(count);
+      expect(elapsed(() => textLinksTo(text, "nope.md"))).toBeLessThan(BOUND_MS);
+    },
+    LONG_TEST_MS,
+  );
+
+  test(
+    "one 1 MB text answers 64 links after reading it once",
+    () => {
+      let text = "";
+      for (let i = 0; text.length < 1_000_000; i++) {
+        text += `- see [file ${i}](docs/f${i}.md) and \`code ${i}\`\n`;
+      }
+      let found = 0;
+      const took = elapsed(() => {
+        const targets = linkTargetSet(text);
+        for (let i = 0; i < 64; i++) if (linksTo(targets, `docs/f${i * 2}.md`)) found++;
+      });
+      expect(took).toBeLessThan(BOUND_MS);
+      expect(found).toBe(64);
+    },
+    LONG_TEST_MS,
+  );
 });

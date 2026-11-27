@@ -83,9 +83,16 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 
   const components = useMemo<Components>(
     () => ({
-      a({ href, children, ...rest }) {
+      a({ href, children, ...props }) {
+        const {
+          "data-written-href": _written,
+          node,
+          ...rest
+        } = props as typeof props & {
+          "data-written-href"?: unknown;
+        };
         const safe = typeof href === "string" ? href : "";
-        const sent = writtenHrefOf(rest.node) ?? safe;
+        const sent = writtenHrefOf(node) ?? safe;
         const link = (icon?: React.ReactNode) => (
           <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, sent, e)}>
             {icon}

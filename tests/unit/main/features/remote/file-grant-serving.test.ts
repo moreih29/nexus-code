@@ -437,6 +437,35 @@ describe("a Windows path link written with backslashes", () => {
   });
 });
 
+describe("a long file whose links are resolved together", () => {
+  test("is read once for all of them, with each link's answer as before", async () => {
+    const doc = path.join(outside, "long.md");
+    let text = "";
+    for (let i = 0; text.length < 1_000_000; i++) {
+      text += `- see [file ${i}](f${i}.txt) and \`code ${i}\`\n`;
+    }
+    fs.writeFileSync(doc, text);
+    fs.writeFileSync(path.join(outside, "f0.txt"), "first");
+    const { ask } = serving({ standing: [] });
+    const parent = (await ask("files.grant", {
+      tabId: "c1",
+      href: doc,
+      source: answer,
+      purpose: "open",
+    })) as { grant: string };
+    const source = { kind: "file", parent: doc, grant: parent.grant };
+    const links = Array.from({ length: 64 }, (_, i) => ({ href: `f${i * 2}.txt`, source }));
+    links.push({ href: "unlinked.txt", source });
+    const started = performance.now();
+    const { found } = (await ask("files.resolve", { tabId: "c1", links })) as {
+      found: unknown[];
+    };
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(found[0]).toEqual({ path: path.join(outside, "f0.txt"), readable: false });
+    expect(found.slice(1)).toEqual(links.slice(1).map(() => null));
+  }, 120_000);
+});
+
 describe("a workspace whose folder is reached through a link", () => {
   test("reads a file named by the folder's real path directly", async () => {
     const linkedRoot = path.join(tmp, "linked-w");

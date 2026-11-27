@@ -6,6 +6,7 @@ import {
   isDevicePath,
   isNetworkLink,
   isNetworkOrDevicePath,
+  networkLinkPath,
   windowsPathKind,
 } from "../../../../src/shared/fs/outside-url";
 
@@ -88,6 +89,23 @@ describe("isNetworkLink", () => {
     ]) {
       expect([link, isNetworkLink(link)]).toEqual([link, false]);
     }
+  });
+});
+
+describe("networkLinkPath", () => {
+  test.each([
+    [String.raw`\\srv\sh\x`, String.raw`\\srv\sh\x`],
+    ["file://srv/sh/x", "//srv/sh/x"],
+    ["file://localhost//srv/sh/x", "//srv/sh/x"],
+    ["FILE://LOCALHOST//srv/sh/x", "//srv/sh/x"],
+    ["file:////srv/sh/x", "//srv/sh/x"],
+    ["file://localhost//?/C:/x", "//?/C:/x"],
+    [String.raw`file:\\srv\sh\x`, "//srv/sh/x"],
+    ["file:///C:/x", null],
+    ["file://localhost/C:/x", null],
+    ["/srv/sh/x", null],
+  ])("%s", (link, path) => {
+    expect(networkLinkPath(link)).toBe(path);
   });
 });
 

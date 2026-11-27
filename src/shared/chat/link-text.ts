@@ -17,7 +17,6 @@ const DEFINITION = /^[ \t>]*\[((?:[^\][\\\n]|\\.){1,999})\]:/gm;
 const REFERENCE = /(!?)\[((?:[^\][\\\n]|\\.)+)\](?:\[((?:[^\][\\\n]|\\.)*)\])?/g;
 const HTML_ATTRIBUTE = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 const CODE = /`([^`\n]+)`/g;
-const FENCE = /^[ \t>]*(`{3,}|~{3,})(.*)$/;
 const WINDOWS_PATH_TARGET = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
 const MAX_PAREN_DEPTH = 32;
 
@@ -197,55 +196,354 @@ function blank(from: number, to: number, into: string[]): void {
   for (let i = from; i < to; i++) if (into[i] !== "\n" && into[i] !== "\r") into[i] = " ";
 }
 
-export function withoutCode(text: string): string {
-  const out = text.split("");
-  const lines = text.split("\n");
-  let offset = 0;
-  let fence: { char: string; size: number; from: number } | null = null;
-  for (const line of lines) {
-    const opened = FENCE.exec(line);
-    if (fence) {
-      const size = opened?.[1]?.length ?? 0;
-      if (opened && opened[1]?.[0] === fence.char && size >= fence.size && !opened[2]?.trim()) {
-        blank(fence.from, offset + line.length, out);
-        fence = null;
-      }
-    } else if (opened && !(opened[1]?.[0] === "`" && opened[2]?.includes("`"))) {
-      fence = { char: opened[1]?.[0] as string, size: opened[1]?.length ?? 3, from: offset };
-    }
-    offset += line.length + 1;
-  }
-  if (fence) blank(fence.from, text.length, out);
-  const prose = out.join("");
-  for (let i = 0; i < prose.length; i++) {
-    if (prose[i] !== "`") continue;
-    let run = 1;
-    while (prose[i + run] === "`") run++;
-    if (i > 0 && prose[i - 1] === "\\") {
-      i += run - 1;
-      continue;
-    }
-    const close = closingRun(prose, i + run, run);
-    if (close === null) {
-      i += run - 1;
-      continue;
-    }
-    blank(i, close + run, out);
-    i = close + run - 1;
-  }
-  return out.join("");
+interface Line {
+  readonly start: number;
+  readonly end: number;
 }
 
-function closingRun(text: string, from: number, size: number): number | null {
-  for (let i = from; i < text.length; i++) {
-    if (text[i] === "\n" && /^[ \t]*(?:\r?\n|$)/.test(text.slice(i + 1, i + 80))) return null;
-    if (text[i] !== "`") continue;
-    let run = 1;
-    while (text[i + run] === "`") run++;
-    if (run === size) return i;
-    i += run - 1;
+function linesOf(text: string): Line[] {
+  const lines: Line[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c !== "\n" && c !== "\r") continue;
+    lines.push({ start, end: i });
+    if (c === "\r" && text[i + 1] === "\n") i++;
+    start = i + 1;
   }
-  return null;
+  lines.push({ start, end: text.length });
+  return lines;
+}
+
+function isBlank(text: string, from: number, to: number): boolean {
+  for (let i = from; i < to; i++) if (text[i] !== " " && text[i] !== "\t") return false;
+  return true;
+}
+
+interface Indent {
+  readonly at: number;
+  readonly col: number;
+}
+
+function indentAt(text: string, at: number, end: number, col: number): Indent {
+  let i = at;
+  let column = col;
+  for (; i < end; i++) {
+    if (text[i] === " ") column++;
+    else if (text[i] === "\t") column += 4 - (column % 4);
+    else break;
+  }
+  return { at: i, col: column };
+}
+
+function quotesAt(text: string, line: Line, most: number): { quotes: number; at: number } {
+  let at = line.start;
+  let quotes = 0;
+  while (quotes < most) {
+    const lead = indentAt(text, at, line.end, 0);
+    if (lead.col > 3 || text[lead.at] !== ">") break;
+    at = lead.at + 1;
+    if (text[at] === " " || text[at] === "\t") at++;
+    quotes++;
+  }
+  return { quotes, at };
+}
+
+function listMarkerEnd(text: string, at: number, end: number, interrupts: boolean): number {
+  let i = at;
+  const c = text[at];
+  if (c === "*" || c === "+" || c === "-") i++;
+  else {
+    while (i < end && i - at < 9 && (text[i] as string) >= "0" && (text[i] as string) <= "9") i++;
+    if (i === at || (text[i] !== "." && text[i] !== ")")) return -1;
+    if (interrupts && text.slice(at, i) !== "1") return -1;
+    i++;
+  }
+  if (i === end) return interrupts ? -1 : i;
+  return text[i] === " " || text[i] === "\t" ? i : -1;
+}
+
+interface FenceRun {
+  readonly char: string;
+  readonly size: number;
+  readonly rest: number;
+}
+
+function fenceAt(text: string, at: number, end: number): FenceRun | null {
+  const char = text[at];
+  if (char !== "`" && char !== "~") return null;
+  let i = at;
+  while (i < end && text[i] === char) i++;
+  return i - at >= 3 ? { char, size: i - at, rest: i } : null;
+}
+
+function headingAt(text: string, at: number, end: number): boolean {
+  let i = at;
+  while (i < end && i - at < 7 && text[i] === "#") i++;
+  return i > at && i - at <= 6 && (i === end || text[i] === " " || text[i] === "\t");
+}
+
+function startsBlock(text: string, at: number, end: number): boolean {
+  return (
+    text[at] === ">" ||
+    text.startsWith("<!--", at) ||
+    listMarkerEnd(text, at, end, true) !== -1 ||
+    fenceAt(text, at, end) !== null ||
+    headingAt(text, at, end)
+  );
+}
+
+function blockBreaks(text: string, lines: readonly Line[]): number[] {
+  const breaks: number[] = [];
+  let quoted = 0;
+  let paragraph = false;
+  let code = false;
+  let heading = false;
+  let gap = false;
+  for (const [n, line] of lines.entries()) {
+    const { quotes, at } = quotesAt(text, line, Number.POSITIVE_INFINITY);
+    const lead = indentAt(text, at, line.end, 0);
+    const empty = lead.at === line.end;
+    if (quotes < quoted && paragraph && !empty && !startsBlock(text, lead.at, line.end)) continue;
+    const indented: boolean = !empty && lead.col >= 4 && (code || !paragraph);
+    const opens =
+      empty ||
+      gap ||
+      heading ||
+      quotes !== quoted ||
+      indented !== code ||
+      (!indented && startsBlock(text, lead.at, line.end));
+    if (n > 0 && opens) breaks.push(line.start);
+    quoted = quotes;
+    code = indented;
+    gap = empty;
+    heading = !empty && !indented && headingAt(text, lead.at, line.end);
+    paragraph = !empty && !indented && !heading;
+  }
+  return breaks;
+}
+
+interface OpenFence extends FenceRun {
+  readonly from: number;
+  readonly quotes: number;
+  readonly base: number;
+}
+
+interface Container {
+  readonly at: number;
+  readonly col: number;
+  readonly base: number;
+}
+
+function blankFences(text: string, lines: readonly Line[], out: string[]): void {
+  let fence: OpenFence | null = null;
+  let items: number[] = [];
+  let quoted = 0;
+  let paragraph = false;
+  let last = 0;
+  let comment = false;
+  for (const line of lines) {
+    if (comment) {
+      comment = !text.slice(line.start, line.end).includes("-->");
+      last = line.end;
+      continue;
+    }
+    if (fence) {
+      const { quotes, at } = quotesAt(text, line, fence.quotes);
+      const lead = indentAt(text, at, line.end, 0);
+      const empty = lead.at === line.end;
+      if (quotes === fence.quotes && (empty || lead.col >= fence.base)) {
+        const close = !empty && lead.col - fence.base <= 3 && fenceAt(text, lead.at, line.end);
+        if (
+          close &&
+          close.char === fence.char &&
+          close.size >= fence.size &&
+          isBlank(text, close.rest, line.end)
+        ) {
+          blank(fence.from, line.end, out);
+          fence = null;
+        }
+        last = line.end;
+        continue;
+      }
+      blank(fence.from, last, out);
+      fence = null;
+    }
+    last = line.end;
+    const { quotes, at } = quotesAt(text, line, Number.POSITIVE_INFINITY);
+    const lead = indentAt(text, at, line.end, 0);
+    const empty = lead.at === line.end;
+    const lazy = paragraph && !empty && !startsBlock(text, lead.at, line.end);
+    if (lazy && quotes < quoted) continue;
+    if (quotes !== quoted) {
+      items = [];
+      quoted = quotes;
+      paragraph = false;
+    }
+    if (empty) {
+      paragraph = false;
+      continue;
+    }
+    if (lazy && paragraph && lead.col < (items[items.length - 1] ?? 0)) continue;
+    while (items.length > 0 && lead.col < (items[items.length - 1] as number)) items.pop();
+    const inner = containerOf(text, line, lead, items, paragraph);
+    if (inner.at !== lead.at) paragraph = false;
+    if (inner.col - inner.base <= 3 && text.startsWith("<!--", inner.at)) {
+      comment = !text.slice(inner.at + 2, line.end).includes("-->");
+      paragraph = false;
+      continue;
+    }
+    const opened = inner.col - inner.base <= 3 ? fenceAt(text, inner.at, line.end) : null;
+    if (opened && !(opened.char === "`" && text.slice(opened.rest, line.end).includes("`"))) {
+      fence = { ...opened, from: line.start, quotes, base: inner.base };
+      paragraph = false;
+    } else if (inner.col - inner.base <= 3) {
+      paragraph = !headingAt(text, inner.at, line.end);
+    }
+  }
+  if (fence) blank(fence.from, text.length, out);
+}
+
+function containerOf(
+  text: string,
+  line: Line,
+  lead: Indent,
+  items: number[],
+  paragraph: boolean,
+): Container {
+  let base = items[items.length - 1] ?? 0;
+  let { at, col } = lead;
+  let interrupts = paragraph;
+  while (col - base <= 3) {
+    const marker = listMarkerEnd(text, at, line.end, interrupts);
+    if (marker === -1) break;
+    const markerCol = col + (marker - at);
+    const after = indentAt(text, marker, line.end, markerCol);
+    const content = after.at === line.end || after.col - markerCol > 4 ? markerCol + 1 : after.col;
+    items.push(content);
+    base = content;
+    at = after.at;
+    col = after.col;
+    interrupts = false;
+    if (content === markerCol + 1 && after.col !== content) break;
+  }
+  return { at, col, base };
+}
+
+function backslashed(text: string, at: number): boolean {
+  let count = 0;
+  for (let i = at - 1; i >= 0 && text[i] === "\\"; i--) count++;
+  return count % 2 === 1;
+}
+
+interface Run {
+  readonly at: number;
+  readonly size: number;
+  readonly paragraph: number;
+}
+
+function blankInline(text: string, lines: readonly Line[], out: string[]): void {
+  const runs: Run[] = [];
+  const bySize = new Map<number, number[]>();
+  const breaks = blockBreaks(text, lines);
+  let paragraph = 0;
+  for (const line of lines) {
+    while (paragraph < breaks.length && (breaks[paragraph] as number) <= line.start) paragraph++;
+    for (let i = line.start; i < line.end; i++) {
+      if (text[i] !== "`") continue;
+      const at = i;
+      while (i + 1 < line.end && text[i + 1] === "`") i++;
+      const size = i - at + 1;
+      const same = bySize.get(size) ?? [];
+      same.push(runs.length);
+      bySize.set(size, same);
+      runs.push({ at, size, paragraph });
+    }
+  }
+  const nextOfSize = new Map<number, number>();
+  const closerOf = (k: number, size: number): Run | null => {
+    const same = bySize.get(size);
+    if (!same) return null;
+    let p = nextOfSize.get(size) ?? 0;
+    while (p < same.length && (same[p] as number) <= k) p++;
+    nextOfSize.set(size, p);
+    const closer = same[p] === undefined ? undefined : runs[same[p] as number];
+    return closer && closer.paragraph === (runs[k] as Run).paragraph ? closer : null;
+  };
+  const none = text.length + 1;
+  let comment = text.indexOf("<!--");
+  if (comment === -1) comment = none;
+  let close = -1;
+  let k = 0;
+  let line = 0;
+  let brk = 0;
+  let i = 0;
+  for (;;) {
+    if (comment < i) {
+      comment = text.indexOf("<!--", i);
+      if (comment === -1) comment = none;
+    }
+    while (k < runs.length && (runs[k] as Run).at < i) k++;
+    const run = runs[k];
+    if (run === undefined && comment === none) return;
+    if (run !== undefined && run.at < comment) {
+      const escaped = backslashed(text, run.at);
+      const closer = closerOf(k, escaped ? run.size - 1 : run.size);
+      if (closer === null || (escaped && run.size === 1)) {
+        i = run.at + run.size;
+        continue;
+      }
+      blank(escaped ? run.at + 1 : run.at, closer.at + closer.size, out);
+      i = closer.at + closer.size;
+      continue;
+    }
+    if (backslashed(text, comment)) {
+      i = comment + 1;
+      continue;
+    }
+    if (close !== none && close < comment + 2) {
+      close = text.indexOf("-->", comment + 2);
+      if (close === -1) close = none;
+    }
+    while (line < lines.length - 1 && (lines[line] as Line).end < comment) line++;
+    const home = lines[line] as Line;
+    if (prefixEnd(text, home) === comment) {
+      let end = text.length;
+      if (close !== none) {
+        while (line < lines.length - 1 && (lines[line] as Line).end < close + 3) line++;
+        end = (lines[line] as Line).end;
+      }
+      blank(comment, end, out);
+      i = end;
+      continue;
+    }
+    while (brk < breaks.length && (breaks[brk] as number) < comment) brk++;
+    if (close !== none && (breaks[brk] ?? none) > close) {
+      blank(comment, close + 3, out);
+      i = close + 3;
+      continue;
+    }
+    i = comment + 4;
+  }
+}
+
+function prefixEnd(text: string, line: Line): number {
+  const { at } = quotesAt(text, line, Number.POSITIVE_INFINITY);
+  let lead = indentAt(text, at, line.end, 0);
+  for (;;) {
+    const marker = listMarkerEnd(text, lead.at, line.end, false);
+    if (marker === -1) break;
+    lead = indentAt(text, marker, line.end, 0);
+  }
+  return lead.col <= 3 ? lead.at : -1;
+}
+
+export function withoutCode(text: string): string {
+  const out = text.split("");
+  const lines = linesOf(text);
+  blankFences(text, lines, out);
+  blankInline(out.join(""), lines, out);
+  return out.join("");
 }
 
 export function referenceLabel(label: string): string {
@@ -263,31 +561,32 @@ interface Definitions {
   readonly spans: [number, number][];
 }
 
-function definitionsIn(prose: string): Definitions {
+function afterDefinition(text: string, at: number, lastDefinition: number): boolean {
+  if (lastDefinition < 0) return false;
+  let end = at - 1;
+  if (text[end] === "\n" && text[end - 1] === "\r") end--;
+  let start = end;
+  while (start > lastDefinition && text[start - 1] !== "\n" && text[start - 1] !== "\r") start--;
+  return lastDefinition >= start;
+}
+
+function definitionsIn(prose: string, breaks: readonly number[]): Definitions {
   const targets = new Map<string, string>();
   const spans: [number, number][] = [];
+  let last = -1;
+  let brk = 0;
   for (const match of prose.matchAll(DEFINITION)) {
+    while (brk < breaks.length && (breaks[brk] as number) < match.index) brk++;
+    const opens = match.index === 0 || breaks[brk] === match.index;
+    if (!opens && !afterDefinition(prose, match.index, last)) continue;
     const label = referenceLabel(match[1] as string);
     const target = definitionTargetAt(prose, match.index + match[0].length);
     if (!target || label === "") continue;
     spans.push([match.index, target.end]);
+    last = target.end;
     if (!targets.has(label)) targets.set(label, target.written);
   }
   return { targets, spans };
-}
-
-function labelStart(text: string, close: number): number | null {
-  let depth = 0;
-  for (let i = close - 1; i >= 0; i--) {
-    const c = text[i];
-    if (i > 0 && text[i - 1] === "\\") continue;
-    if (c === "]") depth++;
-    else if (c === "[") {
-      if (depth === 0) return i;
-      depth--;
-    } else if (c === "\n" && text[i - 1] === "\n") return null;
-  }
-  return null;
 }
 
 export function writtenLinksIn(text: string): WrittenLink[] {
@@ -296,21 +595,72 @@ export function writtenLinksIn(text: string): WrittenLink[] {
 
 function linksIn(prose: string): WrittenLink[] {
   const links: WrittenLink[] = [];
-  const definitions = definitionsIn(prose);
-  const inDefinition = (at: number) =>
-    definitions.spans.some(([start, end]) => at >= start && at < end);
-  for (let i = prose.indexOf("]("); i !== -1; i = prose.indexOf("](", i + 1)) {
-    if ((i > 0 && prose[i - 1] === "\\") || inDefinition(i)) continue;
+  const breaks = blockBreaks(prose, linesOf(prose));
+  const definitions = definitionsIn(prose, breaks);
+  const openers: number[] = [];
+  let floor = 0;
+  let span = 0;
+  let brk = 0;
+  for (let i = 0; i < prose.length; i++) {
+    while (
+      span < definitions.spans.length &&
+      (definitions.spans[span] as [number, number])[1] <= i
+    ) {
+      span++;
+    }
+    const definition = definitions.spans[span];
+    if (definition && i >= definition[0]) {
+      openers.length = 0;
+      floor = 0;
+      i = definition[1] - 1;
+      continue;
+    }
+    if (brk < breaks.length && (breaks[brk] as number) <= i) {
+      while (brk < breaks.length && (breaks[brk] as number) <= i) brk++;
+      openers.length = 0;
+      floor = 0;
+    }
+    const c = prose[i];
+    if (c === "\\") {
+      if (escapedAt(prose, i)) i++;
+      continue;
+    }
+    if (c === "!" && prose[i + 1] === "[") {
+      openers.push(i);
+      i++;
+      continue;
+    }
+    if (c === "[") {
+      openers.push(i);
+      continue;
+    }
+    if (c !== "]") continue;
+    const open = openers.pop();
+    if (open === undefined) continue;
+    const image = prose[open] === "!";
+    const inactive = !image && openers.length < floor;
+    if (floor > openers.length) floor = openers.length;
+    if (inactive || prose[i + 1] !== "(") continue;
     const target = inlineTargetAt(prose, i + 2);
     if (!target) continue;
-    const open = labelStart(prose, i);
-    links.push({ written: target.written, image: open !== null && prose[open - 1] === "!", at: i });
+    if (image)
+      while (links.length > 0 && (links[links.length - 1] as WrittenLink).at > open) links.pop();
+    else floor = openers.length;
+    links.push({ written: target.written, image, at: i });
     i = target.end - 1;
   }
   if (definitions.targets.size > 0) {
+    let within = 0;
     for (const match of prose.matchAll(REFERENCE)) {
+      while (
+        within < definitions.spans.length &&
+        (definitions.spans[within] as [number, number])[1] <= match.index
+      ) {
+        within++;
+      }
+      if ((definitions.spans[within]?.[0] ?? Number.POSITIVE_INFINITY) <= match.index) continue;
       const after = prose[match.index + match[0].length];
-      if (match[3] === undefined && (after === "(" || after === ":")) continue;
+      if (match[3] === undefined && after === "(") continue;
       const label = referenceLabel(match[3] ? match[3] : (match[2] as string));
       const written = definitions.targets.get(label);
       if (written !== undefined) links.push({ written, image: match[1] === "!", at: match.index });
@@ -349,10 +699,22 @@ export function sameLinkHref(a: string, b: string): boolean {
   return cleaned !== "" && cleaned === cleanLinkHref(b);
 }
 
-export function textLinksTo(text: string, href: string, options: LinkTextOptions = {}): boolean {
+export function linkTargetSet(text: string, options: LinkTextOptions = {}): ReadonlySet<string> {
+  const targets = new Set<string>();
+  for (const target of linkTargetsIn(text, options)) {
+    const cleaned = cleanLinkHref(target);
+    if (cleaned !== "") targets.add(cleaned);
+  }
+  return targets;
+}
+
+export function linksTo(targets: ReadonlySet<string>, href: string): boolean {
   const wanted = cleanLinkHref(href);
-  if (wanted === "") return false;
-  return linkTargetsIn(text, options).some((target) => cleanLinkHref(target) === wanted);
+  return wanted !== "" && targets.has(wanted);
+}
+
+export function textLinksTo(text: string, href: string, options: LinkTextOptions = {}): boolean {
+  return linksTo(linkTargetSet(text, options), href);
 }
 
 export function isHtmlFile(path: string): boolean {

@@ -61,7 +61,10 @@ function decodedLink(target: string): string {
 export function networkLinkPath(target: string): string | null {
   if (!isNetworkLink(target)) return null;
   const link = decodedLink(target.trim()).trim();
-  return /^file:/i.test(link) ? link.slice("file:".length).replace(/\\/g, "/") : link;
+  if (!/^file:/i.test(link)) return link;
+  const rest = link.slice("file:".length).replace(/\\/g, "/");
+  const local = /^\/\/(?:localhost)?(?=\/)/i.exec(rest);
+  return local ? rest.slice(local[0].length) : rest;
 }
 
 export function isNetworkLink(target: string): boolean {
