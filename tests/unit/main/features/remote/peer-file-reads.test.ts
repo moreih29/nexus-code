@@ -77,6 +77,26 @@ describe("the shared desktop peer file cache", () => {
     });
   }
 
+  test("a picture at the same path revalidates and only transfers changed bytes", async () => {
+    let version = "v1";
+    const downloads: string[] = [];
+    const cache = new PeerFileReads(async (_device, request) => {
+      if (request.ifVersion === version) return { kind: "notModified", version };
+      const data = version === "v1" ? "AAA=" : "BBB=";
+      downloads.push(data);
+      return { kind: "image", path: request.path, mediaType: "image/png", data, size: 2, version };
+    });
+    cache.updateRoom(room());
+    const read = () => cache.read(PEER, "same.png", {});
+    const first = await read();
+    expect(await read()).toBe(first);
+    version = "v2";
+    const second = await read();
+    expect(second).toMatchObject({ kind: "image", data: "BBB=" });
+    expect(await read()).toBe(second);
+    expect(downloads).toEqual(["AAA=", "BBB="]);
+  });
+
   test("denial evicts data and every reopen needs authorization", async () => {
     const { cache, allow, totals, requests } = fixture();
     await cache.read(PEER, "x", shape);

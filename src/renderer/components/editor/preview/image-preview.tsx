@@ -2,13 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useTranslation } from "react-i18next";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
-import { useFileVersion, versionedUrl } from "./use-file-version";
+import { useImageFileSrc } from "./use-image-file-src";
 import { useWorkspaceFile } from "./use-workspace-file";
 
 export interface ImagePreviewProps {
   workspaceId: string;
   filePath: string;
-  revision?: number;
+  peerFile?: { watch: boolean; connection: number };
   onNaturalSize?: (size: { w: number; h: number }) => void;
   fill?: boolean;
 }
@@ -18,10 +18,16 @@ export function ImagePreview({
   filePath,
   onNaturalSize,
   fill,
-  revision,
+  peerFile,
 }: ImagePreviewProps) {
   const { t } = useTranslation();
   const file = useWorkspaceFile(workspaceId, filePath);
+  const src = useImageFileSrc(
+    workspaceId,
+    file.kind === "inside" ? file.relPath : filePath,
+    file.kind === "inside" ? file.url : null,
+    peerFile,
+  );
 
   if (file.kind === "no-workspace") {
     return (
@@ -35,27 +41,7 @@ export function ImagePreview({
     );
   }
 
-  return (
-    <ImageCanvas
-      url={file.url}
-      alt={file.relPath}
-      workspaceId={workspaceId}
-      relPath={file.relPath}
-      onNaturalSize={onNaturalSize}
-      fill={fill}
-      revision={revision}
-    />
-  );
-}
-
-interface ImageCanvasProps {
-  revision?: number;
-  url: string;
-  alt: string;
-  workspaceId: string;
-  relPath: string;
-  onNaturalSize?: (size: { w: number; h: number }) => void;
-  fill?: boolean;
+  return <ZoomableImage src={src} alt={file.relPath} onNaturalSize={onNaturalSize} fill={fill} />;
 }
 
 const MIN_USER_SCALE = 0.1;
@@ -72,28 +58,8 @@ interface ZoomAnchor {
   cursorY: number;
 }
 
-function ImageCanvas({
-  url,
-  alt,
-  workspaceId,
-  relPath,
-  onNaturalSize,
-  fill,
-  revision,
-}: ImageCanvasProps) {
-  const version = useFileVersion(workspaceId, relPath);
-  return (
-    <ZoomableImage
-      src={versionedUrl(url, version, revision)}
-      alt={alt}
-      onNaturalSize={onNaturalSize}
-      fill={fill}
-    />
-  );
-}
-
 export interface ZoomableImageProps {
-  src: string;
+  src: string | undefined;
   alt: string;
   onNaturalSize?: (size: { w: number; h: number }) => void;
   fill?: boolean;

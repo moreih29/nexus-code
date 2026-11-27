@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { MAX_FILE_RESOLVE_LINKS } from "../../../../packages/remote-protocol/src/rpc";
+import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import type { RemoteAccountState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import { createKeyedListenerBus, createListenerBus } from "../../../shared/util/listener-bus";
@@ -96,7 +97,8 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
       access: ReadAccess | null,
       key: string,
       load: (signal: AbortSignal, known: T | undefined) => Promise<T>,
-    ) {
+      recheckPending = false,
+    ): Promise<T> {
       if (!access || access.signal.aborted) throw new Error("peer connection unavailable");
       const slot = scoped(access, key);
       const scope = limits?.scope?.(access) ?? access.cacheId;
@@ -106,7 +108,11 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
         if (value !== undefined) return value;
       }
       const existing = pending.get(slot);
-      if (existing) return existing;
+      if (existing) {
+        if (!recheckPending) return existing;
+        await existing.catch(() => {});
+        return this.read(access, key, load);
+      }
       if (waiting.size >= MAX_WAITING) throw new Error("too many peer chat reads");
 
       const run = async () => {
@@ -197,6 +203,17 @@ const folderNames = peerReads<FolderNames>({
 });
 
 const pictures = peerReads<ImageBlock>(undefined, 8);
+
+const watchedPictures = new Map<string, Set<{ path: string; refresh(): void }>>();
+
+const pictureWorkspace = ({ deviceId, workspaceId }: PeerWorkspace) =>
+  JSON.stringify([deviceId, workspaceId]);
+
+export function refreshPeerPictures(peer: PeerWorkspace, matches: (path: string) => boolean): void {
+  for (const picture of watchedPictures.get(pictureWorkspace(peer)) ?? []) {
+    if (matches(picture.path)) picture.refresh();
+  }
+}
 
 const presence = peerReads<boolean>({
   entries: 512,
@@ -363,6 +380,23 @@ export function peerChatFiles(
       if (result.kind === "not-found") return false;
       throw new Error(result.message);
     });
+  const picture = (path: string, recheckPending = false) =>
+    pictures.read(
+      current,
+      key(path),
+      async (signal) => {
+        const result = await ipcCallResult(
+          "remote",
+          "peerFilesRead",
+          { ...where, path },
+          { signal },
+        );
+        if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
+        if (result.value.kind !== "image") throw new Error("not an image");
+        return { mediaType: result.value.mediaType, data: result.value.data };
+      },
+      recheckPending,
+    );
   return {
     access: mediaAccess(access, [deviceId, workspaceId], current),
     epoch: current?.id ?? null,
@@ -413,21 +447,20 @@ export function peerChatFiles(
       }
       return current.signal.aborted ? new Set() : missing;
     },
-    picture(path) {
-      return pictures.read(current, key(path), async (signal) => {
-        const result = await ipcCallResult(
-          "remote",
-          "peerFilesRead",
-          { ...where, path },
-          { signal },
-        );
-        if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
-        if (result.value.kind !== "image") throw new Error("not an image");
-        return { mediaType: result.value.mediaType, data: result.value.data };
-      });
-    },
+    picture,
     subscribePicture(path, listener) {
-      return pictures.subscribe(current, key(path), listener);
+      if (!current || current.signal.aborted) return () => {};
+      const off = pictures.subscribe(current, key(path), listener);
+      const workspace = pictureWorkspace(where);
+      const watched = watchedPictures.get(workspace) ?? new Set();
+      const image = { path, refresh: () => void picture(path, true).catch(() => {}) };
+      watched.add(image);
+      watchedPictures.set(workspace, watched);
+      return () => {
+        off();
+        watched.delete(image);
+        if (!watched.size) watchedPictures.delete(workspace);
+      };
     },
     ...grants,
   };

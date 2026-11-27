@@ -93,6 +93,7 @@ export const FileReadBinaryResultSchema = z.discriminatedUnion("kind", [
     base64: z.string(),
     sizeBytes: IntegerSchema.check(z.gte(0)),
     mtime: z.string(),
+    version: z.string().optional(),
   }),
   z.object({
     kind: z.literal("missing"),

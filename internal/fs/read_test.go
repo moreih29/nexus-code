@@ -300,6 +300,38 @@ func TestReadFollowsSymlinkToDevice(t *testing.T) {
 	}
 }
 
+func TestReadRangeVersionChangesAfterReplacingSameSizeFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "clip.bin")
+	must(t, os.WriteFile(path, []byte("old"), 0o644))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() ReadBinaryResult {
+		t.Helper()
+		got, err := fsys.ReadRange(context.Background(), json.RawMessage(`{"relPath":"clip.bin","offset":0,"length":0}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(ReadBinaryResult)
+	}
+	first := read()
+	if first.Base64 != "" || first.Version == "" || first.Version != read().Version {
+		t.Fatalf("unstable version or nonempty metadata read: %#v", first)
+	}
+	info, err := os.Stat(path)
+	must(t, err)
+	next := filepath.Join(root, "replacement.bin")
+	must(t, os.WriteFile(next, []byte("new"), 0o644))
+	must(t, os.Chtimes(next, info.ModTime(), info.ModTime()))
+	must(t, os.Rename(next, path))
+	second := read()
+	if second.Base64 != "" || second.Version == first.Version || second.MTime != first.MTime || second.Size != first.Size {
+		t.Fatalf("replacement metadata did not change the version: %#v -> %#v", first, second)
+	}
+}
+
 func TestReadRangeReadsAPieceWithTheFileSize(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "clip.bin"), []byte("0123456789"), 0o644))

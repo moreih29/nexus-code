@@ -28,6 +28,10 @@ export function PeerFileImage({
   useEffect(() => {
     if (!files) return;
     let live = true;
+    const off = files.subscribePicture(path, (image) => {
+      if (image) setShown({ path, image });
+      else setShown((was) => (was?.path === path && "image" in was ? { path, failed: true } : was));
+    });
     void files.picture(path).then(
       (image) => {
         if (live) setShown({ path, image });
@@ -43,6 +47,7 @@ export function PeerFileImage({
     );
     return () => {
       live = false;
+      off();
     };
   }, [files, path]);
   const current = shown?.path === path ? shown : null;

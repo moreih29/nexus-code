@@ -11,6 +11,7 @@ import { imageSrc } from "../../services/chat/image-look";
 import { grantsOf, linkKey, pathInRoot, useLinksFound } from "../../services/chat/linked-files";
 import { baseName, fileKind } from "../../services/chat/links";
 import { type AnswerExtras, answerLinks, MAX_ANSWER_FILES } from "../../services/chat/panel";
+import { useImageFileSrc } from "../editor/preview/use-image-file-src";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { ChatImage } from "./chat-image";
 import { LinkMenu, useChatLinks } from "./chat-links";
@@ -137,13 +138,12 @@ export function FileCard({
   const isImage = fileKind(path) === "image";
   const files = useChatFiles();
   const picture = useFilePicture(isImage && !bare ? files : null, path);
-  const src = !isImage
-    ? null
-    : picture.image
-      ? imageSrc(picture.image)
-      : !files && file.kind === "inside"
-        ? file.url
-        : null;
+  const localSrc = useImageFileSrc(
+    workspaceId,
+    file.kind === "inside" ? file.relPath : path,
+    isImage && !files && file.kind === "inside" ? file.url : null,
+  );
+  const src = picture.image ? imageSrc(picture.image) : localSrc;
   const folder = folderOf(path, cwd);
   return (
     <LinkMenu target={path} kind="file" link={link}>
