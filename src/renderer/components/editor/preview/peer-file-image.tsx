@@ -3,6 +3,7 @@ import { LinkGrantError, useChatFiles } from "../../../services/chat/chat-files"
 import { imageSrc } from "../../../services/chat/image-look";
 import type { ImageBlock } from "../../../services/chat/model";
 import { ImageChip } from "../../chat/file-image";
+import { useDecodedImageSrc } from "../../ui/use-decoded-image-src";
 
 type Shown =
   | { path: string; image: ImageBlock }
@@ -28,6 +29,10 @@ export function PeerFileImage({
   useEffect(() => {
     if (!files) return;
     let live = true;
+    const off = files.subscribePicture(path, (image) => {
+      if (image) setShown({ path, image });
+      else setShown((was) => (was?.path === path && "image" in was ? { path, failed: true } : was));
+    });
     void files.picture(path).then(
       (image) => {
         if (live) setShown({ path, image });
@@ -43,9 +48,20 @@ export function PeerFileImage({
     );
     return () => {
       live = false;
+      off();
     };
   }, [files, path]);
-  const current = shown?.path === path ? shown : null;
+  const current = files && shown?.path === path ? shown : null;
+  const image = current
+    ? "image" in current
+      ? current.image
+      : undefined
+    : files?.knownPicture?.(path);
+  const src = useDecodedImageSrc(
+    image ? imageSrc(image) : undefined,
+    JSON.stringify([files?.access?.scope, path]),
+  );
+  if (src) return <img {...rest} src={src} alt={alt} />;
   if (!files || !current) {
     return (
       <span
@@ -54,7 +70,6 @@ export function PeerFileImage({
       />
     );
   }
-  if ("image" in current) return <img {...rest} src={imageSrc(current.image)} alt={alt} />;
   if ("required" in current) {
     return <ImageChip path={path} link={{ href, source: { kind: "file", parent } }} />;
   }

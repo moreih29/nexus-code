@@ -5,7 +5,9 @@ import { type LinkedFile, useChatFiles, useFilePicture } from "../../services/ch
 import { imageSrc } from "../../services/chat/image-look";
 import { baseName } from "../../services/chat/links";
 import { cn } from "../../utils/cn";
+import { useImageFileSrc } from "../editor/preview/use-image-file-src";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { useDecodedImageSrc } from "../ui/use-decoded-image-src";
 import { LinkMenu, useChatLinks } from "./chat-links";
 
 export function FileImage({
@@ -26,20 +28,27 @@ export function FileImage({
   const file = useWorkspaceFile(workspaceId, path);
   const files = useChatFiles();
   const picture = useFilePicture(files, path);
+  const localSrc = useImageFileSrc(
+    workspaceId,
+    file.kind === "inside" ? file.relPath : path,
+    !files && file.kind === "inside" ? file.url : null,
+  );
   const [failedFor, setFailedFor] = useState<string | null>(null);
-  if (files) {
-    if (picture.failed) return <>{fallback}</>;
-    if (!picture.image) {
-      return (
-        <span
-          className="inline-block h-24 w-36 animate-pulse rounded-(--radius-control) bg-muted align-top"
-          data-testid="chat-file-image-pending"
-        />
-      );
-    }
+  const src = useDecodedImageSrc(
+    picture.image ? imageSrc(picture.image) : localSrc,
+    JSON.stringify([workspaceId, path, files?.access?.scope]),
+  );
+  if (!src && file.kind === "outside" && !files && links) {
+    return <ImageChip path={path} link={link} />;
   }
-  const src = picture.image ? imageSrc(picture.image) : file.kind === "inside" ? file.url : null;
-  if (!src && file.kind === "outside" && links) return <ImageChip path={path} link={link} />;
+  if (!src && (files ? !picture.failed : file.kind === "inside")) {
+    return (
+      <span
+        className="inline-block h-24 w-36 animate-pulse rounded-(--radius-control) bg-muted align-top"
+        data-testid="chat-file-image-pending"
+      />
+    );
+  }
   if (!src || failedFor === src) return <>{fallback}</>;
   const img = (
     <img

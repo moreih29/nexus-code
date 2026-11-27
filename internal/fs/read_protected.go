@@ -145,6 +145,9 @@ func (s *Service) ReadRangeNoLinks(ctx context.Context, raw json.RawMessage) (an
 		return nil, mapPathError(err, abs)
 	}
 	defer file.Close()
+	if r.Length == 0 {
+		return rangeMetadata(file, info), nil
+	}
 	buf := make([]byte, max(0, min(r.Length, info.Size()-r.Offset)))
 	n, err := file.ReadAt(buf, r.Offset)
 	if err != nil && !errors.Is(err, io.EOF) {

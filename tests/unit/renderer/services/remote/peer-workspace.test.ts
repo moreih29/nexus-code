@@ -310,8 +310,15 @@ test("a Windows peer markdown preview resolves its relative images without a cha
   const path = "c:\\Project\\Docs\\README.md";
   const loaded = Promise.withResolvers<void>();
   const stop = watchPeerFile(workspaceId, path, () => loaded.resolve(), "workspace-text");
+  const image = Promise.withResolvers<void>();
+  const stopImage = watchPeerFile(
+    workspaceId,
+    "C:/Project/Docs/preview.png",
+    () => image.resolve(),
+    "image",
+  );
   try {
-    await loaded.promise;
+    await Promise.all([loaded.promise, image.promise]);
     function Preview() {
       const view = useFileLookView(path, { mode: "preview" });
       return createElement(FileLookBody, {
@@ -329,5 +336,6 @@ test("a Windows peer markdown preview resolves its relative images without a cha
     );
   } finally {
     stop();
+    stopImage();
   }
 });

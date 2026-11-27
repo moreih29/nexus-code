@@ -65,6 +65,27 @@ test("an image in an opened file is read first and shown", async () => {
   expect(files.opened).toEqual([]);
 });
 
+test("an open Markdown preview applies updated picture bytes for the same path", async () => {
+  let publish: ((image: ImageBlock | null) => void) | undefined;
+  const files = chatFiles({
+    subscribePicture: (_path, listener) => {
+      publish = listener;
+      return () => {
+        publish = undefined;
+      };
+    },
+  });
+  await withTestDom(async (host, root) => {
+    await act(async () => root.render(imageIn(files, null)));
+    const image = host.querySelector("img");
+    expect(image?.getAttribute("src")).toBe("data:image/png;base64,AAA");
+    await act(async () => publish?.({ mediaType: "image/png", data: "AAA" }));
+    expect(host.querySelector("img")).toBe(image);
+    await act(async () => publish?.({ mediaType: "image/png", data: "BBB" }));
+    expect(image?.getAttribute("src")).toBe("data:image/png;base64,BBB");
+  });
+});
+
 test("an image that needs a grant becomes a tile, and a click grants it from the file", async () => {
   const files = chatFiles({
     picture: async () => {

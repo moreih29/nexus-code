@@ -33,9 +33,11 @@ import {
   markdownFileTarget,
   markdownText,
 } from "../../ui/markdown-body";
+import { useDecodedImageSrc } from "../../ui/use-decoded-image-src";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
 import { PeerFileImage } from "./peer-file-image";
+import { useImageFileSrc } from "./use-image-file-src";
 
 const log = createLogger("markdown-preview");
 
@@ -206,14 +208,32 @@ export function MarkdownPreview({
             />
           );
         }
-        const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
+        const embedded = images?.get(rawSrc);
+        if (embedded !== undefined) return <img {...rest} src={embedded} alt={alt ?? ""} />;
+        const classified = classifyLinkHref(rawSrc, imageCtx);
         const unread = (
           <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />
         );
-        const outside =
-          resolved === null && viaHost
-            ? linkTargetPath(rawSrc || written, currentFileAbsPath)
-            : null;
+        if (classified.kind === "external") {
+          return <img {...rest} src={classified.href} alt={alt ?? ""} />;
+        }
+        if (classified.kind === "internal-file") {
+          const peer = peerOf(workspaceId) !== null;
+          const path = peer ? classified.absPath : classified.relPath;
+          const url = peer
+            ? buildOutsideUrl(workspaceId, path)
+            : buildWorkspaceUrl(workspaceId, path);
+          return (
+            <WorkspaceMarkdownImage
+              {...rest}
+              workspaceId={workspaceId}
+              path={path}
+              url={url}
+              alt={alt ?? ""}
+            />
+          );
+        }
+        const outside = viaHost ? linkTargetPath(rawSrc || written, currentFileAbsPath) : null;
         if (outside) {
           return (
             <PeerFileImage
@@ -226,8 +246,7 @@ export function MarkdownPreview({
             />
           );
         }
-        if (resolved === null) return unread;
-        return <img {...rest} src={resolved} alt={alt ?? ""} />;
+        return unread;
       },
       li: MdListItem,
       input: MdInput,
@@ -399,24 +418,15 @@ export function stripFrontmatter(source: string): string {
   return source.replace(FRONTMATTER_RE, "");
 }
 
-function resolveImageSrc(
-  rawSrc: string,
-  workspaceId: string,
-  ctx: LinkClassifyContext,
-): string | null {
-  if (!rawSrc) return null;
-  const classified = classifyLinkHref(rawSrc, ctx);
-  switch (classified.kind) {
-    case "external":
-      return classified.href;
-    case "internal-file":
-      return peerOf(workspaceId)
-        ? buildOutsideUrl(workspaceId, classified.absPath)
-        : buildWorkspaceUrl(workspaceId, classified.relPath);
-    case "anchor":
-    case "blocked":
-      return null;
-  }
+function WorkspaceMarkdownImage({
+  workspaceId,
+  path,
+  url,
+  alt,
+  ...props
+}: { workspaceId: string; path: string; url: string } & React.ImgHTMLAttributes<HTMLImageElement>) {
+  const src = useDecodedImageSrc(useImageFileSrc(workspaceId, path, url), url);
+  return <img {...props} src={src} alt={alt ?? ""} />;
 }
 
 function cssEscape(value: string): string {

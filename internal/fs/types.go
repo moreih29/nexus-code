@@ -36,11 +36,12 @@ type ReadRangeParams struct {
 }
 
 type ReadBinaryResult struct {
-	Kind   string
-	Base64 string
-	Size   int64
-	MTime  string
-	Reason string
+	Kind    string
+	Base64  string
+	Size    int64
+	MTime   string
+	Version string
+	Reason  string
 }
 
 func (r ReadBinaryResult) MarshalJSON() ([]byte, error) {
@@ -51,11 +52,12 @@ func (r ReadBinaryResult) MarshalJSON() ([]byte, error) {
 		}{Kind: r.Kind, Reason: r.Reason})
 	}
 	return json.Marshal(struct {
-		Kind   string `json:"kind"`
-		Base64 string `json:"base64"`
-		Size   int64  `json:"sizeBytes"`
-		MTime  string `json:"mtime"`
-	}{Kind: r.Kind, Base64: r.Base64, Size: r.Size, MTime: r.MTime})
+		Kind    string `json:"kind"`
+		Base64  string `json:"base64"`
+		Size    int64  `json:"sizeBytes"`
+		MTime   string `json:"mtime"`
+		Version string `json:"version,omitempty"`
+	}{Kind: r.Kind, Base64: r.Base64, Size: r.Size, MTime: r.MTime, Version: r.Version})
 }
 
 func (r ReadFileResult) MarshalJSON() ([]byte, error) {

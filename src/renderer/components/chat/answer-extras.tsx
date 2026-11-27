@@ -11,7 +11,9 @@ import { imageSrc } from "../../services/chat/image-look";
 import { grantsOf, linkKey, pathInRoot, useLinksFound } from "../../services/chat/linked-files";
 import { baseName, fileKind } from "../../services/chat/links";
 import { type AnswerExtras, answerLinks, MAX_ANSWER_FILES } from "../../services/chat/panel";
+import { useImageFileSrc } from "../editor/preview/use-image-file-src";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { useDecodedImageSrc } from "../ui/use-decoded-image-src";
 import { ChatImage } from "./chat-image";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { FileKindIcon } from "./file-kind-icon";
@@ -137,13 +139,17 @@ export function FileCard({
   const isImage = fileKind(path) === "image";
   const files = useChatFiles();
   const picture = useFilePicture(isImage && !bare ? files : null, path);
-  const src = !isImage
-    ? null
-    : picture.image
-      ? imageSrc(picture.image)
-      : !files && file.kind === "inside"
-        ? file.url
-        : null;
+  const localSrc = useImageFileSrc(
+    workspaceId,
+    file.kind === "inside" ? file.relPath : path,
+    isImage && !files && file.kind === "inside" ? file.url : null,
+  );
+  const src = useDecodedImageSrc(
+    picture.image ? imageSrc(picture.image) : localSrc,
+    JSON.stringify([workspaceId, path, files?.access?.scope]),
+  );
+  const hasThumbnail =
+    src !== undefined || (isImage && !bare && (files ? !picture.failed : file.kind === "inside"));
   const folder = folderOf(path, cwd);
   return (
     <LinkMenu target={path} kind="file" link={link}>
@@ -168,9 +174,16 @@ export function FileCard({
         className="flex max-w-64 min-w-0 flex-col overflow-hidden rounded-(--radius-control) border border-border text-left hover:bg-[var(--state-hover-bg)]"
         data-testid="chat-file-card"
       >
-        {src && (
+        {hasThumbnail && (
           <span className="relative">
-            <img src={src} alt="" className="h-28 w-48 bg-muted object-cover" />
+            {src ? (
+              <img src={src} alt="" className="h-28 w-48 bg-muted object-cover" />
+            ) : (
+              <span
+                className="block h-28 w-48 animate-pulse bg-muted"
+                data-testid="chat-file-card-image-pending"
+              />
+            )}
             {more > 0 && (
               <span
                 aria-hidden
@@ -184,7 +197,7 @@ export function FileCard({
         <span className="flex min-w-0 items-center gap-1.5 px-2 py-1">
           <FileKindIcon path={path} className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate text-app-ui-sm">{baseName(path)}</span>
-          {!src && more > 0 && (
+          {!hasThumbnail && more > 0 && (
             <span aria-hidden className="shrink-0 rounded bg-muted px-1 font-semibold tabular-nums">
               +{more}
             </span>

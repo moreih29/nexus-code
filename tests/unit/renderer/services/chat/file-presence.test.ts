@@ -1,12 +1,36 @@
 import { describe, expect, it } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   createFilePresence,
   filesFound,
   filesGone,
   lookupPath,
   pathToLookUp,
+  useFoundFiles,
 } from "../../../../../src/renderer/services/chat/file-presence";
 import { resolveFilePath } from "../../../../../src/renderer/services/chat/links";
+import {
+  forgetImageVersion,
+  localImageVersionKey,
+  rememberImageVersion,
+} from "../../../../../src/renderer/services/editor/preview/image-version-cache";
+
+it("an image card can remount from its known version before checking file presence", () => {
+  const workspaceId = "known-image-card";
+  const path = "/p/shot.png";
+  const key = localImageVersionKey(workspaceId, "shot.png");
+  rememberImageVersion(key, "v1");
+  function Card() {
+    const found = useFoundFiles(workspaceId, "/p", [path, "/p/other.png"]);
+    return createElement("span", null, [...found].join(","));
+  }
+  try {
+    expect(renderToStaticMarkup(createElement(Card))).toBe("<span>/p/shot.png</span>");
+  } finally {
+    forgetImageVersion(key);
+  }
+});
 
 describe("lookupPath", () => {
   it("is the path under the workspace root", () => {
