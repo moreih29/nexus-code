@@ -30,6 +30,7 @@ interface TabEntry {
   loadFailure: BrowserLoadFailure | null;
   requestedUrl: string;
   navigationRequest: number;
+  recoveryNavigationRequest: number | null;
   forwardedAddress: { requested: string; target: string } | null;
   active: boolean;
   lastBounds: CssBounds | null;
@@ -115,6 +116,7 @@ export class BrowserTabRegistry {
       loadFailure: null,
       requestedUrl: url,
       navigationRequest: 0,
+      recoveryNavigationRequest: null,
       forwardedAddress: null,
       active: false,
       lastBounds: null,
@@ -133,7 +135,9 @@ export class BrowserTabRegistry {
     view.webContents.setBackgroundThrottling(true);
 
     view.webContents.on("did-start-navigation", ({ isMainFrame, isSameDocument, url }) => {
-      if (isMainFrame && !isSameDocument) entry.requestedUrl = url;
+      if (!isMainFrame || isSameDocument) return;
+      entry.requestedUrl = url;
+      entry.recoveryNavigationRequest = null;
     });
     view.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return;
@@ -145,6 +149,18 @@ export class BrowserTabRegistry {
       });
     });
     view.webContents.on("did-navigate", () => this.setLoadFailure(tabId, entry, null));
+    view.webContents.on("did-finish-load", () => {
+      const recoveryRequest = entry.recoveryNavigationRequest;
+      entry.recoveryNavigationRequest = null;
+      if (
+        recoveryRequest === entry.navigationRequest &&
+        this.tabs.get(tabId) === entry &&
+        entry.active &&
+        !this.isSuspended(entry)
+      ) {
+        this.attachAndRestoreBounds(entry);
+      }
+    });
     view.webContents.on("render-process-gone", () => {
       entry.navigationRequest++;
       const url = view.webContents.isLoadingMainFrame()
@@ -197,7 +213,8 @@ export class BrowserTabRegistry {
   private setLoadFailure(tabId: string, entry: TabEntry, failure: BrowserLoadFailure | null): void {
     if (this.tabs.get(tabId) !== entry || (failure === null && entry.loadFailure === null)) return;
     entry.loadFailure = failure;
-    if (entry.active) entry.view.setVisible(!this.isSuspended(entry) && failure === null);
+    entry.recoveryNavigationRequest = failure === null ? entry.navigationRequest : null;
+    if (entry.active) this.restorePageVisibility(entry);
     for (const listener of this.loadFailureListeners) listener(tabId, failure);
   }
 
@@ -356,9 +373,24 @@ export class BrowserTabRegistry {
     entry.active = active;
   }
 
+  private restorePageVisibility(entry: TabEntry): void {
+    if (this.isSuspended(entry) || entry.loadFailure !== null) {
+      entry.view.setVisible(false);
+      return;
+    }
+    this.attachAndRestoreBounds(entry);
+  }
+
   private attachAndRestoreBounds(entry: TabEntry): void {
     entry.view.setVisible(!this.isSuspended(entry) && entry.loadFailure === null);
-    entry.win.contentView.addChildView(entry.view);
+    const host = entry.win.contentView;
+    const index = host.children.indexOf(entry.view);
+    if (index === -1) {
+      host.addChildView(entry.view);
+    } else {
+      host.removeChildView(entry.view);
+      host.addChildView(entry.view, index);
+    }
     const b = entry.lastBounds;
     if (b) {
       this.applyCssBounds(entry, entry.view, b);
@@ -436,7 +468,7 @@ export class BrowserTabRegistry {
     for (const entry of this.tabs.values()) {
       if (entry.windowId !== windowId) continue;
       if (entry.active && !entry.view.webContents.isDestroyed()) {
-        entry.view.setVisible(entry.loadFailure === null);
+        this.restorePageVisibility(entry);
         if (
           entry.devtoolsOpen &&
           entry.devtoolsView !== null &&
