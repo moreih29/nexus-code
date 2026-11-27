@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 const globals = globalThis as Record<string, unknown>;
 const saved = globals.window;
@@ -8,7 +8,7 @@ globals.window = {
   ipc: {
     call: async (channel: string, method: string, args: unknown) => {
       if (channel === "remote" && method === "chatSourcesChanged") told.push(args);
-      return channel === "chat" && method === "attachRoot" ? { root: null } : {};
+      return channel === "chat" && method === "attachRoot" ? { root: "/tmp/attach" } : {};
     },
     cancel: () => {},
     on: () => () => {},
@@ -21,6 +21,9 @@ afterAll(() => {
 });
 
 const { chatHandlers } = await import("../../../../../src/renderer/services/cli/chat-actions");
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
 const { linkCandidates, sourcePresent, stopWatchingChatSources, watchChatSources } = await import(
   "../../../../../src/renderer/services/cli/file-links"
 );
@@ -55,7 +58,13 @@ function chatState() {
         said("a1", "Made [the chart](/tmp/out/chart.png#L1) and `notes.md`.", "r1"),
         { kind: "received", key: "rc", from: { kind: "tab" }, text: "see [it](../shared/x.txt)" },
         { kind: "task_end", key: "te", taskId: "j1", status: "done", summary: "[log](/tmp/j.log)" },
-        { kind: "user", key: "u1", text: "hi", images: [], state: "taken" },
+        {
+          kind: "user",
+          key: "u1",
+          text: "hi\n\n@docs/b.md @../work-other/c.md @/tmp/attach/w1/c1/1/copy.md",
+          images: [],
+          state: "taken",
+        },
       ],
       tools: {
         r1: tool("r1", "Read", { file_path: `${ROOT}/notes.md` }),
@@ -170,6 +179,30 @@ describe("where a link another device names came from in a chat", () => {
     expect(present({ kind: "answer", itemKey: "a1" })).toBe(false);
     expect(present({ kind: "tool", toolUseId: "w1" })).toBe(false);
     expect(present({ kind: "streaming", messageId: "m-live" })).toBe(false);
+  });
+
+  test("the chat.fileLinks op accepts workspace attachments and outside slot copies", async () => {
+    const open = spyOn(ChatController.prototype, "openToRead").mockResolvedValue(undefined);
+    const user = { kind: "user", itemKey: "u1" } as const;
+    try {
+      expect(
+        await chatHandlers["chat.fileLinks"]({
+          workspaceId: "w1",
+          tabId: "c1",
+          links: [
+            { href: "docs/b.md", source: user },
+            { href: "../work-other/c.md", source: user },
+            { href: "/tmp/attach/w1/c1/1/copy.md", source: user },
+            { href: "notes.md", source: user },
+          ],
+        }),
+      ).toEqual({
+        candidates: [[`${ROOT}/docs/b.md`], null, ["/tmp/attach/w1/c1/1/copy.md"], null],
+      });
+    } finally {
+      open.mockRestore();
+      stopWatchingChatSources();
+    }
   });
 
   test("the chat.sourcesPresent op answers no for every source of a tab that is gone", async () => {

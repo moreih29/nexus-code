@@ -169,7 +169,7 @@ export function linkCandidates(
   cwd: string,
   href: string,
   from: ChatLinkSource,
-  attached: (file: string) => boolean = () => true,
+  allowsAttachment: (file: string) => boolean = () => true,
 ): string[] | null {
   const conversation = conversationOf(source);
   const { items, tools } = conversation;
@@ -216,8 +216,8 @@ export function linkCandidates(
       const item = itemOf(conversation, from.itemKey);
       if (item?.kind !== "user") return null;
       const path = resolveFilePath(cleanLinkHref(href), cwd);
-      if (!path || !attached(path)) return null;
-      return attachedFilesOf(item, cwd).includes(path) ? [path] : null;
+      if (!path || !attachedFilesOf(item, cwd).includes(path)) return null;
+      return allowsAttachment(path) ? [path] : null;
     }
     case "job": {
       const job = jobsOf(source.chat.model).find((task) => task.taskId === from.taskId);

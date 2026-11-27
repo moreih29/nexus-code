@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -126,6 +126,7 @@ function serving({
 }
 
 const answer = { kind: "answer", itemKey: "a1" };
+const user = { kind: "user", itemKey: "u1" };
 
 describe("files.resolve on the host", () => {
   test("tells each link's file, whether it reads without a grant, and blocks network paths unread", async () => {
@@ -246,6 +247,37 @@ describe("files.grant and a read with its token", () => {
     });
   });
 
+  test("resolves a workspace attachment and keeps the existing outside attachment grant behavior", async () => {
+    const inside = path.join(root, "in.txt");
+    const copied = path.join(outside, "a.txt");
+    const rejected = path.join(outside, "b.txt");
+    const paths = new Map([
+      ["in.txt", [inside]],
+      [copied, [copied]],
+    ]);
+    const candidates: Candidates = (links) => links.map(({ href }) => paths.get(href) ?? null);
+    const { ask, grants, workspaceId } = serving({ candidates });
+    expect(
+      await ask("files.resolve", {
+        tabId: "c1",
+        links: ["in.txt", rejected, copied].map((href) => ({ href, source: user })),
+      }),
+    ).toEqual({
+      found: [{ path: inside, readable: true }, null, { path: copied, readable: false }],
+    });
+    expect(await grantFor(ask, "in.txt", user)).toEqual({ path: inside });
+    await expect(grantFor(ask, rejected, user)).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
+    expect(grants.sourcesOf(workspaceId, "c1")).toEqual([]);
+    const copyGrant = await grantFor(ask, copied, user);
+    expect(copyGrant.path).toBe(copied);
+    expect(copyGrant.grant).toHaveLength(43);
+
+    const standing = serving({ candidates, standing: [copied] });
+    expect(await grantFor(standing.ask, copied, user)).toEqual({ path: copied });
+  });
+
   test("an older device still reads a file a chat names while the flag is on, and not once it is off", async () => {
     const target = path.join(outside, "a.txt");
     const on = serving({ mentioned: [target] });
@@ -337,5 +369,50 @@ describe("a workspace whose folder is reached through a link", () => {
     } finally {
       fs.rmSync(linkedRoot);
     }
+  });
+});
+
+describe("a link inside the workspace that leads out of it", () => {
+  const rootPath = path.join(tmp, "with-link");
+  const href = "link-out/b.txt";
+  const target = path.join(rootPath, href);
+  const parent = path.join(rootPath, "doc.md");
+
+  beforeAll(() => {
+    fs.mkdirSync(rootPath);
+    fs.symlinkSync(outside, path.join(rootPath, "link-out"), "junction");
+    fs.writeFileSync(parent, `Read [b](${href}) next.`);
+  });
+
+  test("shows an unreadable link from a chat or file without issuing a grant", async () => {
+    const { ask, grants, workspaceId } = serving({
+      rootPath,
+      candidates: (links) => links.map((link) => [path.join(rootPath, link.href)]),
+    });
+    const missing = "link-out/missing.txt";
+    const links = [
+      { href, source: answer },
+      { href, source: { kind: "file", parent } },
+      { href, source: user },
+      { href: missing, source: answer },
+    ];
+    expect(await ask("files.resolve", { tabId: "c1", links })).toEqual({
+      found: [
+        { path: target, readable: false },
+        { path: target, readable: false },
+        { path: target, readable: false },
+        { path: path.join(rootPath, missing), readable: false },
+      ],
+    });
+    for (const link of links) {
+      await expect(
+        ask("files.grant", { tabId: "c1", ...link, purpose: "open" }),
+      ).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        data: undefined,
+        message: "link-out is a link: what it points to is not read",
+      });
+    }
+    expect(grants.sourcesOf(workspaceId, "c1")).toEqual([]);
   });
 });
