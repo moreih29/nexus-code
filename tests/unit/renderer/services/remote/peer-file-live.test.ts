@@ -187,6 +187,8 @@ describe("a file of another computer's, kept current", () => {
 
     chat.stop();
     plain.stop();
+    expect(render(5)).toContain(`src="${url}?v=v2"`);
+    expect(render()).toContain(`src="${url}?v=v2"`);
     watch(path, "image", 1);
     await settle();
     expect(render(5)).toContain(`src="${url}?v=v2"`);

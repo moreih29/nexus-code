@@ -87,10 +87,21 @@ describe("MarkdownPreview — workspace image rewriting", () => {
       let version = "old";
       let changed: ((event: unknown) => void) | undefined;
       const reads: unknown[] = [];
+      let metadata = Promise.withResolvers<void>();
+      let pixels = Promise.withResolvers<void>();
+      const decoded: string[] = [];
       Object.assign(window, {
+        Image: class {
+          src = "";
+          decode() {
+            decoded.push(this.src);
+            return pixels.promise;
+          }
+        },
         ipc: {
           call: async (channel: string, method: string, args: unknown) => {
             reads.push({ channel, method, args });
+            await metadata.promise;
             return { kind: "ok", base64: "", sizeBytes: 16, mtime: "same", version };
           },
           listen: (channel: string, event: string, callback: (value: unknown) => void) => {
@@ -107,17 +118,29 @@ describe("MarkdownPreview — workspace image rewriting", () => {
         changed?.({ workspaceId: "ws-1", changes: [{ relPath: "docs/img/logo.png" }] });
 
       await act(async () => render("first"));
+      expect(src()).toBeFalsy();
+      await act(async () => metadata.resolve());
       expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
       expect(host.querySelector("img")?.getAttribute("alt")).toBe("logo");
 
+      metadata = Promise.withResolvers<void>();
       await act(async () => render("second"));
       expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      await act(async () => metadata.resolve());
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      expect(decoded).toEqual([]);
 
       version = "new";
+      pixels = Promise.withResolvers<void>();
       await act(async () => change());
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      expect(decoded).toEqual(["nexus-workspace://ws-1/docs/img/logo.png?v=new"]);
+      await act(async () => pixels.resolve());
       expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=new");
+      metadata = Promise.withResolvers<void>();
       await act(async () => render("third"));
       expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=new");
+      await act(async () => metadata.resolve());
       expect(reads).toEqual(
         Array.from({ length: 4 }, () => ({
           channel: "fs",

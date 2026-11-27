@@ -3,6 +3,7 @@ import { LinkGrantError, useChatFiles } from "../../../services/chat/chat-files"
 import { imageSrc } from "../../../services/chat/image-look";
 import type { ImageBlock } from "../../../services/chat/model";
 import { ImageChip } from "../../chat/file-image";
+import { useDecodedImageSrc } from "../../ui/use-decoded-image-src";
 
 type Shown =
   | { path: string; image: ImageBlock }
@@ -50,7 +51,17 @@ export function PeerFileImage({
       off();
     };
   }, [files, path]);
-  const current = shown?.path === path ? shown : null;
+  const current = files && shown?.path === path ? shown : null;
+  const image = current
+    ? "image" in current
+      ? current.image
+      : undefined
+    : files?.knownPicture?.(path);
+  const src = useDecodedImageSrc(
+    image ? imageSrc(image) : undefined,
+    JSON.stringify([files?.access?.scope, path]),
+  );
+  if (src) return <img {...rest} src={src} alt={alt} />;
   if (!files || !current) {
     return (
       <span
@@ -59,7 +70,6 @@ export function PeerFileImage({
       />
     );
   }
-  if ("image" in current) return <img {...rest} src={imageSrc(current.image)} alt={alt} />;
   if ("required" in current) {
     return <ImageChip path={path} link={{ href, source: { kind: "file", parent } }} />;
   }

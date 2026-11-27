@@ -75,6 +75,12 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
 
   const scoped = (access: ReadAccess, key: string) => `${access.id}:${key}`;
   return {
+    peek(access: ReadAccess | null, key: string) {
+      if (!access || access.signal.aborted) return undefined;
+      const scope = limits?.scope?.(access) ?? access.cacheId;
+      const item = cached.get(`${scope}:${key}`);
+      return item && item.until > Date.now() ? item.value : undefined;
+    },
     subscribe(access: ReadAccess | null, key: string, listener: (value: T | null) => void) {
       return access && !access.signal.aborted
         ? results.subscribe(scoped(access, key), listener)
@@ -202,7 +208,15 @@ const folderNames = peerReads<FolderNames>({
   },
 });
 
-const pictures = peerReads<ImageBlock>(undefined, 8);
+const pictures = peerReads<ImageBlock>(
+  {
+    entries: 128,
+    bytes: 16 * 1024 * 1024,
+    revalidate: true,
+    size: ({ data, mediaType }) => 2 * (data.length + mediaType.length),
+  },
+  8,
+);
 
 const watchedPictures = new Map<string, Set<{ path: string; refresh(): void }>>();
 
@@ -384,7 +398,7 @@ export function peerChatFiles(
     pictures.read(
       current,
       key(path),
-      async (signal) => {
+      async (signal, known) => {
         const result = await ipcCallResult(
           "remote",
           "peerFilesRead",
@@ -393,7 +407,8 @@ export function peerChatFiles(
         );
         if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
         if (result.value.kind !== "image") throw new Error("not an image");
-        return { mediaType: result.value.mediaType, data: result.value.data };
+        const { data, mediaType } = result.value;
+        return known?.data === data && known.mediaType === mediaType ? known : { data, mediaType };
       },
       recheckPending,
     );
@@ -448,6 +463,9 @@ export function peerChatFiles(
       return current.signal.aborted ? new Set() : missing;
     },
     picture,
+    knownPicture(path) {
+      return pictures.peek(current, key(path));
+    },
     subscribePicture(path, listener) {
       if (!current || current.signal.aborted) return () => {};
       const off = pictures.subscribe(current, key(path), listener);
@@ -527,6 +545,7 @@ function reset(
     resolved.revoke(previousRead);
     resolved.clear(previousRead.cacheId);
     pictures.revoke(previousRead);
+    if (!foreground) pictures.clear(previousRead.cacheId);
   }
   const controller = connection === null ? undefined : new AbortController();
   const id = ++nextAccess;

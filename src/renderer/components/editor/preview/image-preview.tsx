@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useTranslation } from "react-i18next";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { useDecodedImageSrc } from "../../ui/use-decoded-image-src";
 import { useImageFileSrc } from "./use-image-file-src";
 import { useWorkspaceFile } from "./use-workspace-file";
 
@@ -22,11 +23,15 @@ export function ImagePreview({
 }: ImagePreviewProps) {
   const { t } = useTranslation();
   const file = useWorkspaceFile(workspaceId, filePath);
-  const src = useImageFileSrc(
+  const requestedSrc = useImageFileSrc(
     workspaceId,
     file.kind === "inside" ? file.relPath : filePath,
     file.kind === "inside" ? file.url : null,
     peerFile,
+  );
+  const src = useDecodedImageSrc(
+    requestedSrc,
+    JSON.stringify([workspaceId, filePath, peerFile?.connection]),
   );
 
   if (file.kind === "no-workspace") {

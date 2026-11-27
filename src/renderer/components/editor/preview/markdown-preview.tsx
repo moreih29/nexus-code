@@ -33,6 +33,7 @@ import {
   markdownFileTarget,
   markdownText,
 } from "../../ui/markdown-body";
+import { useDecodedImageSrc } from "../../ui/use-decoded-image-src";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
 import { PeerFileImage } from "./peer-file-image";
@@ -424,7 +425,7 @@ function WorkspaceMarkdownImage({
   alt,
   ...props
 }: { workspaceId: string; path: string; url: string } & React.ImgHTMLAttributes<HTMLImageElement>) {
-  const src = useImageFileSrc(workspaceId, path, url);
+  const src = useDecodedImageSrc(useImageFileSrc(workspaceId, path, url), url);
   return <img {...props} src={src} alt={alt ?? ""} />;
 }
 

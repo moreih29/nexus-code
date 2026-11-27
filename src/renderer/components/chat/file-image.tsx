@@ -7,6 +7,7 @@ import { baseName } from "../../services/chat/links";
 import { cn } from "../../utils/cn";
 import { useImageFileSrc } from "../editor/preview/use-image-file-src";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { useDecodedImageSrc } from "../ui/use-decoded-image-src";
 import { LinkMenu, useChatLinks } from "./chat-links";
 
 export function FileImage({
@@ -33,20 +34,21 @@ export function FileImage({
     !files && file.kind === "inside" ? file.url : null,
   );
   const [failedFor, setFailedFor] = useState<string | null>(null);
-  if (files) {
-    if (picture.failed) return <>{fallback}</>;
-    if (!picture.image) {
-      return (
-        <span
-          className="inline-block h-24 w-36 animate-pulse rounded-(--radius-control) bg-muted align-top"
-          data-testid="chat-file-image-pending"
-        />
-      );
-    }
+  const src = useDecodedImageSrc(
+    picture.image ? imageSrc(picture.image) : localSrc,
+    JSON.stringify([workspaceId, path, files?.access?.scope]),
+  );
+  if (!src && file.kind === "outside" && !files && links) {
+    return <ImageChip path={path} link={link} />;
   }
-  const src = picture.image ? imageSrc(picture.image) : localSrc;
-  if (!src && file.kind === "outside" && links) return <ImageChip path={path} link={link} />;
-  if (!src && !files && file.kind === "inside") return null;
+  if (!src && (files ? !picture.failed : file.kind === "inside")) {
+    return (
+      <span
+        className="inline-block h-24 w-36 animate-pulse rounded-(--radius-control) bg-muted align-top"
+        data-testid="chat-file-image-pending"
+      />
+    );
+  }
   if (!src || failedFor === src) return <>{fallback}</>;
   const img = (
     <img

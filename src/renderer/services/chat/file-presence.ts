@@ -8,6 +8,7 @@ import {
   isNetworkOrDevicePath,
 } from "../../../shared/fs/outside-url";
 import { isUnder } from "../../../shared/fs/relative-path";
+import { lastImageVersion, localImageVersionKey } from "../editor/preview/image-version-cache";
 import { useChatFiles } from "./chat-files";
 
 const FRESH_MS = 30_000;
@@ -148,7 +149,14 @@ export function useFoundFiles(
   const scope = files ? (files.access?.scope ?? null) : undefined;
   const [found, setFound] = useState<{ scope: typeof scope; paths: ReadonlySet<string> }>(() => ({
     scope,
-    paths: files ? EMPTY_PATHS : new Set(paths.filter((path) => presence.known(workspaceId, path))),
+    paths: new Set(
+      paths.filter((path) => {
+        if (files) return files.knownPicture?.(path);
+        if (presence.known(workspaceId, path)) return true;
+        const relPath = pathToLookUp(path, root);
+        return relPath !== null && lastImageVersion(localImageVersionKey(workspaceId, relPath));
+      }),
+    ),
   }));
   if (found.scope !== scope) setFound({ scope, paths: EMPTY_PATHS });
   // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` only says when to look again

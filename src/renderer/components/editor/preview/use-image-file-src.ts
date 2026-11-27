@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
+import {
+  forgetImageVersion,
+  lastImageVersion,
+  localImageVersionKey,
+  rememberImageVersion,
+} from "../../../services/editor/preview/image-version-cache";
 import { usePeerImageVersion } from "../../../services/remote/peer-file-live";
 import { peerOf } from "../../../services/remote/peer-workspace";
 import { usePreviewDraft } from "./preview-draft";
@@ -7,10 +13,14 @@ import { usePreviewDraft } from "./preview-draft";
 const localReads = new Map<string, ReturnType<typeof watchLocalImage>>();
 
 function watchLocalImage(workspaceId: string, relPath: string) {
+  const key = localImageVersionKey(workspaceId, relPath);
   const listeners = new Set<(version: string) => void>();
   let pending = false;
   let again = false;
   const publish = (version: string) => {
+    if (!listeners.size) return;
+    if (version) rememberImageVersion(key, version);
+    else forgetImageVersion(key);
     for (const listener of listeners) listener(version);
   };
   const refresh = (changed = false) => {
@@ -58,7 +68,7 @@ function watchLocalImage(workspaceId: string, relPath: string) {
 }
 
 function useLocalImageVersion(workspaceId: string, relPath: string, enabled: boolean) {
-  const key = JSON.stringify([workspaceId, relPath]);
+  const key = localImageVersionKey(workspaceId, relPath);
   const [shown, setShown] = useState<{ key: string; version: string }>();
   useEffect(() => {
     if (!enabled) return;
@@ -76,7 +86,8 @@ function useLocalImageVersion(workspaceId: string, relPath: string, enabled: boo
       }
     };
   }, [key, workspaceId, relPath, enabled]);
-  return enabled && shown?.key === key ? shown.version : undefined;
+  if (!enabled) return undefined;
+  return shown?.key === key ? shown.version : lastImageVersion(key);
 }
 
 export function useImageFileSrc(

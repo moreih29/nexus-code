@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { type PeerWorkspace, peerOf } from "../../../shared/fs/peer-url";
 import type { ToolCall } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
+import { lastImageVersion, rememberImageVersion } from "../editor/preview/image-version-cache";
 import { refreshPeerPictures } from "./peer-chat-media";
 import {
   type PeerText,
@@ -64,12 +65,14 @@ async function loadVersion(entry: Entry, again: boolean): Promise<void> {
   if (signal.aborted || (now === null && (entry.mode !== "image" || entry.snapshot))) return;
   if (entry.mode === "image") {
     if (now && entry.snapshot?.version === now) return;
+    const imageKey = now ?? `legacy-${++nextLegacyImage}`;
+    rememberImageVersion(entry.key, imageKey);
     entry.version = now ?? undefined;
     entry.snapshot = {
       text: null,
       revision: (entry.snapshot?.revision ?? 0) + 1,
       version: now ?? undefined,
-      imageKey: now ?? `legacy-${++nextLegacyImage}`,
+      imageKey,
     };
     for (const listener of [...entry.listeners]) listener();
     return;
@@ -305,18 +308,14 @@ export function usePeerImageVersion(
   enabled: boolean,
   connection: number,
 ): string | undefined {
+  const key = keyOf(workspaceId, path, "image", connection);
   const snapshot = useSnapshot(workspaceId, path, "image", enabled, connection);
-  const [last, setLast] = useState<{ workspaceId: string; path: string; key: string }>();
-  if (
-    snapshot?.imageKey !== undefined &&
-    (last?.workspaceId !== workspaceId || last.path !== path || last.key !== snapshot.imageKey)
-  ) {
-    setLast({ workspaceId, path, key: snapshot.imageKey });
+  const version = snapshot?.imageKey;
+  const [last, setLast] = useState<{ key: string; version: string }>();
+  if (version !== undefined && (last?.key !== key || last.version !== version)) {
+    setLast({ key, version });
   }
-  return (
-    snapshot?.imageKey ??
-    (last?.workspaceId === workspaceId && last.path === path ? last.key : undefined)
-  );
+  return version ?? (last?.key === key ? last.version : lastImageVersion(key));
 }
 
 function changeMarks(
