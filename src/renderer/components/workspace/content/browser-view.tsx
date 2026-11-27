@@ -68,6 +68,7 @@ export function BrowserTabView({
         description: "ERR_BROWSER_CREATE_FAILED",
       }
     : (runtime?.loadFailure ?? null);
+  const hasLoadFailure = loadFailure !== null;
   const snapshot = runtime?.snapshot ?? null;
   const devtoolsOpen = runtime?.devtoolsOpen ?? false;
   const urlFocusToken = runtime?.urlFocusToken ?? 0;
@@ -133,6 +134,10 @@ export function BrowserTabView({
     if (parentEl === null) return;
     scheduleSendBounds();
   }, [parentEl, scheduleSendBounds]);
+
+  useEffect(() => {
+    if (isActive && !hasLoadFailure) scheduleSendBounds();
+  }, [isActive, hasLoadFailure, scheduleSendBounds]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: devtoolsOpen is not read in the body but intentionally re-runs the effect to rewire the observer to the toggled devtools placeholder.
   useEffect(() => {
@@ -255,7 +260,7 @@ export function BrowserTabView({
             ref={placeholderRef}
             className="absolute inset-0 pointer-events-none"
             aria-hidden="true"
-            data-browser-placeholder={loadFailure ? undefined : tabId}
+            data-browser-placeholder={hasLoadFailure ? undefined : tabId}
           />
           {snapshot && !loadFailure && (
             <img

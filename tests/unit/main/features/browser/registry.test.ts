@@ -19,6 +19,7 @@ class FakeWebContents extends EventEmitter {
     webRequest: { onBeforeRequest: () => {} },
   });
   readonly capturePage = mock(async () => image);
+  readonly insertCSS = mock(async (_css: string) => "scrollbar-style");
   readonly loadURL = mock(async (_url: string) => {});
   readonly reload = mock(() => {});
   readonly navigationHistory = { canGoBack: () => false, canGoForward: () => false };
@@ -65,6 +66,25 @@ class FakeWebContentsView {
   }
 }
 
+class FakeContentView {
+  private readonly views: FakeWebContentsView[] = [];
+
+  get children(): FakeWebContentsView[] {
+    return [...this.views];
+  }
+
+  readonly addChildView = mock((view: FakeWebContentsView, index = this.views.length) => {
+    const existing = this.views.indexOf(view);
+    if (existing !== -1) this.views.splice(existing, 1);
+    this.views.splice(index, 0, view);
+  });
+
+  readonly removeChildView = mock((view: FakeWebContentsView) => {
+    const index = this.views.indexOf(view);
+    if (index !== -1) this.views.splice(index, 1);
+  });
+}
+
 const electron = await import("electron");
 mock.module("electron", () => ({
   ...electron,
@@ -90,7 +110,7 @@ const createArgs = {
 describe("browser visibility IPC", () => {
   let registry: InstanceType<typeof BrowserTabRegistry>;
   let pair: ReturnType<typeof createIpcPair>;
-  let attached: Set<FakeWebContentsView>;
+  let contentView: FakeContentView;
   let page: FakeWebContentsView;
 
   function call(method: string, args: unknown) {
@@ -125,15 +145,8 @@ describe("browser visibility IPC", () => {
   beforeEach(async () => {
     resetInMemoryIpc();
     await setupInMemoryRouter();
-    attached = new Set();
+    contentView = new FakeContentView();
     registry = new BrowserTabRegistry();
-    const contentView = {
-      get children() {
-        return [...attached];
-      },
-      addChildView: (view: FakeWebContentsView) => attached.add(view),
-      removeChildView: (view: FakeWebContentsView) => attached.delete(view),
-    };
     registerBrowserChannel(
       registry,
       undefined,
@@ -203,7 +216,7 @@ describe("browser visibility IPC", () => {
     });
     await call("destroy", { tabId, viewId: failedViewId });
     await call("setActive", { tabId, viewId: retryViewId, active: true });
-    expect(attached.has(registry.get(tabId)?.view as unknown as FakeWebContentsView)).toBe(true);
+    expect(contentView.children).toContain(registry.get(tabId)?.view);
   });
 
   test("reports native bounds independently of attachment and visibility", async () => {
@@ -216,9 +229,9 @@ describe("browser visibility IPC", () => {
     const bounds = { x: 92, y: 64, width: 800, height: 400 };
     await call("setBounds", { tabId, viewId, ...bounds });
     expect(driver.viewState(tabId)).toEqual({ visible: true, bounds });
-    attached.delete(page);
+    contentView.removeChildView(page);
     expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
-    attached.add(page);
+    contentView.addChildView(page);
     await call("suspendAll", { captureSnapshot: false });
     expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
     await call("resumeAll", {});
@@ -237,10 +250,10 @@ describe("browser visibility IPC", () => {
 
     await setActive(false);
     await call("resumeAll", {});
-    expect(attached.size).toBe(0);
+    expect(contentView.children).toEqual([]);
 
     await setActive(true);
-    expect(attached).toEqual(new Set([page, devTools]));
+    expect(contentView.children).toEqual([page, devTools]);
     expect(page.visible).toBe(true);
     expect(devTools.visible).toBe(true);
     expect(snapshots().at(-1)).toEqual({ kind: "cleared", tabId, viewId });
@@ -253,7 +266,7 @@ describe("browser visibility IPC", () => {
     await call("openDevTools", { tabId });
     await call("resumeAll", {});
     await call("openDevTools", { tabId });
-    expect(attached.has(devTools)).toBe(true);
+    expect(contentView.children).toContain(devTools);
     expect(devTools.visible).toBe(true);
   });
 
@@ -337,6 +350,135 @@ describe("browser visibility IPC", () => {
     expect(page.visible).toBe(false);
     page.webContents.emit("did-navigate", {}, url, 200, "OK");
     expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+  });
+
+  test("reattaches the recovered page at its original position and restores its bounds", async () => {
+    const bounds = { x: 92, y: 64, width: 800, height: 400 };
+    await call("setBounds", { tabId, viewId, ...bounds });
+    await call("openDevTools", { tabId });
+    const devTools = registry.get(tabId)!.devtoolsView as unknown as FakeWebContentsView;
+    page.webContents.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      createArgs.url,
+      true,
+    );
+    page.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    contentView.addChildView.mockClear();
+    contentView.removeChildView.mockClear();
+
+    page.webContents.emit("did-navigate", {}, createArgs.url, 200, "OK");
+
+    expect(contentView.removeChildView).toHaveBeenCalledWith(page);
+    expect(contentView.addChildView).toHaveBeenCalledWith(page, 0);
+    expect(contentView.children).toEqual([page, devTools]);
+    expect(page.getBounds()).toEqual(bounds);
+    expect(page.visible).toBe(true);
+
+    const updatedBounds = { ...bounds, width: 750 };
+    await call("setBounds", { tabId, viewId, ...updatedBounds });
+    page.setBounds(bounds);
+    contentView.addChildView.mockClear();
+    contentView.removeChildView.mockClear();
+
+    page.webContents.emit("did-finish-load");
+    page.webContents.emit("did-finish-load");
+
+    expect(contentView.removeChildView).toHaveBeenCalledTimes(1);
+    expect(contentView.addChildView).toHaveBeenCalledTimes(1);
+    expect(contentView.children).toEqual([page, devTools]);
+    expect(page.getBounds()).toEqual(updatedBounds);
+  });
+
+  test("does not reattach at load completion after a newer or ordinary navigation", () => {
+    const { url } = createArgs;
+    page.webContents.emit("did-fail-load", {}, -102, "", url, true);
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    contentView.addChildView.mockClear();
+    contentView.removeChildView.mockClear();
+
+    page.webContents.emit("did-start-navigation", {
+      url,
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    page.webContents.emit("did-finish-load");
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    page.webContents.emit("did-finish-load");
+
+    expect(contentView.removeChildView).not.toHaveBeenCalled();
+    expect(contentView.addChildView).not.toHaveBeenCalled();
+  });
+
+  test("does not reattach at load completion when another address request is pending", async () => {
+    const { url } = createArgs;
+    page.webContents.emit("did-fail-load", {}, -102, "", url, true);
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    contentView.addChildView.mockClear();
+    contentView.removeChildView.mockClear();
+
+    await call("navigate", { tabId, url: `${url}/next` });
+    page.webContents.emit("did-finish-load");
+
+    expect(contentView.removeChildView).not.toHaveBeenCalled();
+    expect(contentView.addChildView).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    "failed",
+    "inactive",
+    "suspended",
+  ] as const)("does not reattach at load completion when the page is %s", async (state) => {
+    const { url } = createArgs;
+    page.webContents.emit("did-fail-load", {}, -102, "", url, true);
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    if (state === "failed") page.webContents.emit("did-fail-load", {}, -102, "", url, true);
+    if (state === "inactive") await setActive(false);
+    if (state === "suspended") await call("suspendAll", { captureSnapshot: false });
+    contentView.addChildView.mockClear();
+    contentView.removeChildView.mockClear();
+
+    page.webContents.emit("did-finish-load");
+
+    expect(contentView.removeChildView).not.toHaveBeenCalled();
+    expect(contentView.addChildView).not.toHaveBeenCalled();
+  });
+
+  test("resume restores a recovered page and keeps a failed page hidden", async () => {
+    const bounds = { x: 92, y: 64, width: 800, height: 400 };
+    await call("setBounds", { tabId, viewId, ...bounds });
+    page.webContents.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      createArgs.url,
+      true,
+    );
+    contentView.addChildView.mockClear();
+    contentView.removeChildView.mockClear();
+
+    await call("suspendAll", { captureSnapshot: false });
+    await call("resumeAll", {});
+    expect(page.visible).toBe(false);
+    expect(contentView.addChildView).not.toHaveBeenCalled();
+    expect(contentView.removeChildView).not.toHaveBeenCalled();
+
+    await call("suspendAll", { captureSnapshot: false });
+    page.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    page.webContents.emit("did-navigate", {}, createArgs.url, 200, "OK");
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(false);
+    expect(contentView.addChildView).not.toHaveBeenCalled();
+    expect(contentView.removeChildView).not.toHaveBeenCalled();
+
+    await call("resumeAll", {});
+    expect(contentView.removeChildView).toHaveBeenCalledWith(page);
+    expect(contentView.addChildView).toHaveBeenCalledWith(page, 0);
+    expect(page.getBounds()).toEqual(bounds);
     expect(page.visible).toBe(true);
   });
 
@@ -452,15 +594,12 @@ describe("browser visibility IPC", () => {
 
 describe("browser tabs in two windows", () => {
   function hostWindow(id: number) {
-    const attached = new Set<unknown>();
+    const contentView = new FakeContentView();
     const win = {
-      contentView: {
-        addChildView: (view: unknown) => attached.add(view),
-        removeChildView: (view: unknown) => attached.delete(view),
-      },
+      contentView,
       webContents: { id, getZoomFactor: () => 1 },
     } as unknown as BrowserWindow;
-    return { win, attached };
+    return { win, contentView };
   }
 
   test("each tab shows in the window that opened it, hides with its overlay, and goes with it", async () => {
@@ -475,8 +614,8 @@ describe("browser tabs in two windows", () => {
     const a = open("tab-in-first", first);
     const b = open("tab-in-second", second);
     try {
-      expect([...first.attached]).toEqual([a]);
-      expect([...second.attached]).toEqual([b]);
+      expect(first.contentView.children).toEqual([a]);
+      expect(second.contentView.children).toEqual([b]);
 
       await registry.suspendAll({ captureSnapshot: false, windowId: first.win.webContents.id });
       expect(a.visible).toBe(false);
@@ -489,7 +628,7 @@ describe("browser tabs in two windows", () => {
       registry.disposeWindow(first.win.webContents.id);
       expect(registry.get("tab-in-first")).toBeUndefined();
       expect(registry.get("tab-in-second")).toBeDefined();
-      expect([...second.attached]).toEqual([b]);
+      expect(second.contentView.children).toEqual([b]);
     } finally {
       registry.disposeAll();
     }
