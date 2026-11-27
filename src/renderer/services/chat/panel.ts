@@ -410,6 +410,21 @@ function linkTarget(link: WrittenLink): string {
   return linkDestination(link.written);
 }
 
+const writtenLinkCache = new Map<string, readonly Readonly<WrittenLink>[]>();
+const WRITTEN_LINK_CACHE_SIZE = 8;
+
+function cachedWrittenLinksIn(text: string): readonly Readonly<WrittenLink>[] {
+  const cached = writtenLinkCache.get(text);
+  if (cached) return cached;
+  const links = writtenLinksIn(text);
+  if (writtenLinkCache.size >= WRITTEN_LINK_CACHE_SIZE) {
+    const oldest = writtenLinkCache.keys().next();
+    if (!oldest.done) writtenLinkCache.delete(oldest.value);
+  }
+  writtenLinkCache.set(text, links);
+  return links;
+}
+
 function firstOfEachTarget(links: readonly WrittenLink[]): WrittenLink[] {
   const seen = new Set<string>();
   return links.filter((link) => {
@@ -420,7 +435,7 @@ function firstOfEachTarget(links: readonly WrittenLink[]): WrittenLink[] {
 }
 
 function writtenImagesIn(text: string): string[] {
-  return firstOfEachTarget(writtenLinksIn(text).filter((link) => link.image)).map(linkTarget);
+  return firstOfEachTarget(cachedWrittenLinksIn(text).filter((link) => link.image)).map(linkTarget);
 }
 
 function looksLikePath(text: string): boolean {
@@ -514,7 +529,7 @@ export function resultsOf(
     const answer: FileLinkSource = { kind: "answer", itemKey: item.key };
     for (const block of item.blocks) {
       if (block.type !== "text") continue;
-      for (const link of firstOfEachTarget(writtenLinksIn(block.text))) {
+      for (const link of firstOfEachTarget(cachedWrittenLinksIn(block.text))) {
         const target = linkTarget(link);
         if (/^https?:\/\//.test(target)) add("url", target, answer);
         else if (looksLikePath(target))
@@ -669,7 +684,7 @@ export function imagesOf(
 
 function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
   const named: { at: number; path: string }[] = [];
-  for (const link of firstOfEachTarget(writtenLinksIn(text))) {
+  for (const link of firstOfEachTarget(cachedWrittenLinksIn(text))) {
     const target = linkTarget(link);
     if (!/^https?:\/\//.test(target) && looksLikePath(target)) {
       named.push({ at: link.at, path: target });

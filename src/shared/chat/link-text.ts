@@ -438,7 +438,7 @@ function blockBreaks(text: string, lines: readonly Line[], budget: Budget): numb
       (!indented && startsBlock(text, lead.at, line.end));
     if (n > 0 && opens) breaks.push(line.start);
     quoted = quotes;
-    const bare = !empty && !indented && bareItem(text, lead.at, line.end);
+    const bare: boolean = !empty && !indented && bareItem(text, lead.at, line.end);
     code = indented;
     gap = empty || bare;
     heading = !empty && !indented && headingAt(text, lead.at, line.end);

@@ -153,6 +153,7 @@ describe("reading a long text takes time in line with its length", () => {
     ["label-less ](x) repeated", "](x)".repeat(40_000), 0],
     ["table rows with a](b) in a cell", "| a](b) | c |\n".repeat(15_000), 0],
     ["one paragraph of x](y)", "x](y) ".repeat(30_000), 0],
+    ["one paragraph of unclosed link destinations", `[a](${"x".repeat(1000)}`.repeat(1044), 0],
     [
       "40000 definitions and 40000 links",
       `${Array.from({ length: 40_000 }, (_, i) => `[d${i}]: /x${i}`).join("\n")}\n\n${"[a](/b) ".repeat(40_000)}`,
@@ -260,7 +261,9 @@ describe("each special token takes time in line with how often it is written", (
     (_name, token, make) => {
       const time = (size: number) => {
         const text = `[r]: /r\n\n${make(token, size)}`;
-        return elapsed(() => linkTargetSet(text));
+        const run = () => linkTargetSet(text);
+        run();
+        return Math.min(elapsed(run), elapsed(run), elapsed(run));
       };
       const small = time(QUARTER_MB);
       const large = time(4 * QUARTER_MB);

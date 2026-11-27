@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { lookAtImage } from "../../../../../src/renderer/services/chat/image-look";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
@@ -37,6 +37,7 @@ import {
   todosOf,
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
+import * as linkText from "../../../../../src/shared/chat/link-text";
 import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
 import { shownPath } from "../../../../../src/shared/fs/relative-path";
 
@@ -412,6 +413,28 @@ describe("chat panel", () => {
       { kind: "url", target: "https://example.com/docs", created: false },
       { kind: "file", target: "src/app.ts", created: false },
     ]);
+  });
+
+  test("reuses link extraction by text and extracts new text", () => {
+    const extract = spyOn(linkText, "writtenLinksIn");
+    const resultsFor = (text: string) => {
+      const model = applyLines(emptyModel(), [assistant("memo", [{ type: "text", text }])]);
+      return resultsOf(model.items, model.tools, "/p");
+    };
+    try {
+      const first = "[one](/p/cache-first.md)";
+      const second = "[two](/p/cache-second.md)";
+      const firstResult = [{ kind: "file", target: "/p/cache-first.md", created: false }];
+      expect(resultsFor(first)).toEqual(firstResult);
+      expect(resultsFor(first)).toEqual(firstResult);
+      expect(extract).toHaveBeenCalledTimes(1);
+      expect(resultsFor(second)).toEqual([
+        { kind: "file", target: "/p/cache-second.md", created: false },
+      ]);
+      expect(extract.mock.calls).toEqual([[first], [second]]);
+    } finally {
+      extract.mockRestore();
+    }
   });
 
   test("each result and answer card keeps the link as written and where it came from", () => {

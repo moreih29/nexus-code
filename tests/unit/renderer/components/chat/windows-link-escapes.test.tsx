@@ -602,7 +602,7 @@ const READ_AS_RENDERED: [string, string, string[]][] = [
     "- <!-- a\n[r]: C:\\after-item.png\n[r]",
     ["C:\\after-item.png"],
   ],
-  ["a definition on a bullet line","- [r]: C:\\listdef.png\n\n[r]", ["C:\\listdef.png"]],
+  ["a definition on a bullet line", "- [r]: C:\\listdef.png\n\n[r]", ["C:\\listdef.png"]],
   ["a definition on a numbered line", "1. [r]: C:\\numdef.png\n\n[r]", ["C:\\numdef.png"]],
   ["a definition on each item", '- [r]: C:\\li.png "t"\n- [r]', ["C:\\li.png"]],
   ["a definition-like line inside an item", "- item\n  [r]: C:\\cont.png\n\n[r]", []],
