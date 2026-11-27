@@ -154,6 +154,7 @@ export function registerBrowserChannel(
         wc.on("did-stop-loading", () => {
           emit("loadingChanged", { isLoading: false });
         });
+        if (!entry.loadFailure && wc.isLoading()) emit("loadingChanged", { isLoading: true });
 
         wc.on("page-title-updated", (_event, title) => {
           emit("titleUpdated", { title });

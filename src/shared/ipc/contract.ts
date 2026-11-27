@@ -1801,7 +1801,9 @@ const coreIpcContract = {
         z.object({
           tabId: z.guid(),
           viewId: z.guid(),
-          failure: z.object({ url: z.string(), description: z.string() }).nullable(),
+          failure: z
+            .object({ url: z.string(), description: z.string(), code: z.number().optional() })
+            .nullable(),
         }),
       ),
       refused: listen(

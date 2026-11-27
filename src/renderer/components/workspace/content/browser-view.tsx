@@ -3,10 +3,10 @@ import { Wrench } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserEmptyState } from "@/components/editor/browser/empty-state";
+import { BrowserLoadError } from "@/components/editor/browser/load-error";
 import { NavControls } from "@/components/editor/browser/nav-controls";
 import { PickButton } from "@/components/editor/browser/pick-button";
 import { UrlBar } from "@/components/editor/browser/url-bar";
-import { EmptyState } from "@/components/ui/empty-state";
 import { IconButton } from "@/components/ui/icon-button";
 import { ipcCallResult } from "@/ipc/client";
 import {
@@ -243,17 +243,11 @@ export function BrowserTabView({
             </div>
           )}
           {loadFailure && (
-            <div className="absolute inset-0 flex overflow-auto">
-              <EmptyState
-                title={i18next.t("browser.load_failed", { error: loadFailure.description })}
-                description={loadFailure.url}
-                actionLabel={i18next.t("action.retry")}
-                onAction={() => void ipcCallResult("browser", "reload", { tabId })}
-                disabled={isLoading}
-                tone="status"
-                className="[overflow-wrap:anywhere]"
-              />
-            </div>
+            <BrowserLoadError
+              failure={loadFailure}
+              isLoading={isLoading}
+              onRetry={() => void ipcCallResult("browser", "reload", { tabId })}
+            />
           )}
           <div
             ref={placeholderRef}

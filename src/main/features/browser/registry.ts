@@ -25,6 +25,7 @@ interface TabEntry {
   workspaceId: string;
   partition: string;
   loadFailure: BrowserLoadFailure | null;
+  requestedUrl: string;
   navigationRequest: number;
   forwardedAddress: { requested: string; target: string } | null;
   active: boolean;
@@ -49,6 +50,7 @@ export interface BrowserAddressResolver {
 export interface BrowserLoadFailure {
   url: string;
   description: string;
+  code?: number;
 }
 
 interface SuspendSnapshot {
@@ -121,6 +123,7 @@ export class BrowserTabRegistry {
       workspaceId,
       partition,
       loadFailure: null,
+      requestedUrl: url,
       navigationRequest: 0,
       forwardedAddress: null,
       active: false,
@@ -130,15 +133,32 @@ export class BrowserTabRegistry {
       devtoolsOpen: false,
     };
     this.tabs.set(tabId, entry);
+    view.webContents.on("did-start-navigation", ({ isMainFrame, isSameDocument, url }) => {
+      if (isMainFrame && !isSameDocument) entry.requestedUrl = url;
+    });
     view.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return;
       const forward = entry.forwardedAddress;
       this.setLoadFailure(tabId, entry, {
-        url: forward?.target === url ? forward.requested : url,
-        description,
+        url: forward?.target === url ? forward.requested : url || entry.requestedUrl,
+        description: description || `NET_ERROR_${code}`,
+        code,
       });
     });
     view.webContents.on("did-navigate", () => this.setLoadFailure(tabId, entry, null));
+    view.webContents.on("render-process-gone", () => {
+      entry.navigationRequest++;
+      const url = view.webContents.isLoadingMainFrame()
+        ? entry.requestedUrl
+        : view.webContents.getURL();
+      this.setLoadFailure(tabId, entry, {
+        url:
+          entry.loadFailure?.url ??
+          entry.forwardedAddress?.requested ??
+          (url || entry.requestedUrl),
+        description: "ERR_RENDER_PROCESS_GONE",
+      });
+    });
     for (const listener of this.createListeners) listener(tabId, view.webContents);
 
     view.webContents.on("will-navigate", (event, target) => {
@@ -185,14 +205,34 @@ export class BrowserTabRegistry {
   private load(tabId: string, entry: TabEntry, url: string, label: string): void {
     const request = ++entry.navigationRequest;
     entry.forwardedAddress = null;
+    entry.requestedUrl = url;
     if (!isTabLoadAllowed(url)) {
       logger.warn(`[${label}] disallowed address in ${tabId}`);
       this.setLoadFailure(tabId, entry, { url, description: "ERR_DISALLOWED_URL_SCHEME" });
       return;
     }
+    const isCurrent = () =>
+      this.tabs.get(tabId) === entry &&
+      entry.navigationRequest === request &&
+      !entry.view.webContents.isDestroyed();
     const loadNow = (target: string) => {
-      entry.view.webContents.loadURL(target).catch(() => {
+      const previousFailure = entry.loadFailure;
+      entry.view.webContents.loadURL(target).catch((error: { code?: string; errno?: number }) => {
+        if (!isCurrent() || error.errno === -3 || error.code === "ERR_ABORTED") return;
         logger.warn(`[${label}] loadURL failed for ${tabId}`);
+        if (
+          entry.loadFailure !== previousFailure ||
+          error.errno === -2 ||
+          error.code === "ERR_FAILED" ||
+          !error.code
+        ) {
+          return;
+        }
+        this.setLoadFailure(tabId, entry, {
+          url,
+          description: error.code,
+          ...(typeof error.errno === "number" ? { code: error.errno } : {}),
+        });
       });
     };
     const resolver = this.addressResolver;
@@ -200,10 +240,6 @@ export class BrowserTabRegistry {
       loadNow(url);
       return;
     }
-    const isCurrent = () =>
-      this.tabs.get(tabId) === entry &&
-      entry.navigationRequest === request &&
-      !entry.view.webContents.isDestroyed();
     resolver.resolve(entry.workspaceId, url).then(
       (resolved) => {
         if (!isCurrent()) return;

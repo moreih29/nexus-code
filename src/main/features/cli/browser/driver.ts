@@ -782,6 +782,9 @@ export class CdpBrowserDriver implements BrowserDriver {
 
   private checkLoadFailure(tabId: string): void {
     const failure = this.pageOf(tabId)?.loadFailure;
+    if (failure?.description === "ERR_RENDER_PROCESS_GONE") {
+      throw new CliError(`Page stopped at ${failure.url}. Reload the tab to try again.`);
+    }
     if (failure) throw new CliError(`Could not load ${failure.url}: ${failure.description}`);
   }
 

@@ -20,6 +20,7 @@ class FakeWebContents extends EventEmitter {
   });
   readonly capturePage = mock(async () => image);
   readonly loadURL = mock(async (_url: string) => {});
+  readonly reload = mock(() => {});
   readonly navigationHistory = { canGoBack: () => false, canGoForward: () => false };
   private destroyed = false;
 
@@ -30,6 +31,12 @@ class FakeWebContents extends EventEmitter {
   closeDevTools(): void {}
   isLoading(): boolean {
     return true;
+  }
+  isLoadingMainFrame(): boolean {
+    return false;
+  }
+  getURL(): string {
+    return createArgs.url;
   }
   isDestroyed(): boolean {
     return this.destroyed;
@@ -228,7 +235,7 @@ describe("browser visibility IPC", () => {
     expect(page.visible).toBe(true);
 
     page.webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", url, true);
-    const failure = { url, description: "ERR_NAME_NOT_RESOLVED" };
+    const failure = { url, description: "ERR_NAME_NOT_RESOLVED", code: -105 };
     expect(registry.get(tabId)?.loadFailure).toEqual(failure);
     expect(pair.sender.sent).toContainEqual({
       channel: "ipc:event",
@@ -265,6 +272,88 @@ describe("browser visibility IPC", () => {
     expect(page.visible).toBe(true);
   });
 
+  test("a failed refresh retains the error through retry and clears it on an HTTP response", async () => {
+    const { url } = createArgs;
+    await call("reload", { tabId });
+    expect(page.webContents.reload).toHaveBeenCalledTimes(1);
+    page.webContents.emit("did-fail-load", {}, -102, "", url, true);
+    const failure = { url, description: "NET_ERROR_-102", code: -102 };
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(page.visible).toBe(false);
+
+    await call("reload", { tabId });
+    page.webContents.emit("did-start-loading");
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(pair.sender.sent.at(-1)?.args).toEqual([
+      "browser",
+      "loadingChanged",
+      { tabId, viewId, isLoading: true },
+    ]);
+    page.webContents.emit("did-navigate", {}, url, 404, "Not Found");
+    page.webContents.emit("did-stop-loading");
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+    expect(pair.sender.sent.at(-1)?.args).toEqual([
+      "browser",
+      "loadingChanged",
+      { tabId, viewId, isLoading: false },
+    ]);
+  });
+
+  test("uses a specific loadURL rejection when no failure event arrives", async () => {
+    const url = "https://example.com/fail";
+    page.webContents.loadURL.mockRejectedValueOnce(Object.assign(new Error(), { errno: -3 }));
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+
+    page.webContents.loadURL.mockRejectedValueOnce(
+      Object.assign(new Error(), { code: "ERR_FAILED", errno: -2 }),
+    );
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+
+    page.webContents.loadURL.mockRejectedValueOnce(
+      Object.assign(new Error(), { code: "ERR_CONNECTION_REFUSED", errno: -102 }),
+    );
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toEqual({
+      url,
+      description: "ERR_CONNECTION_REFUSED",
+      code: -102,
+    });
+    expect(page.visible).toBe(false);
+  });
+
+  test("shows renderer termination in the tab and CLI and allows reopening the page", async () => {
+    const { url } = createArgs;
+    page.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 1 });
+    const failure = { url, description: "ERR_RENDER_PROCESS_GONE" };
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(pair.sender.sent.at(-1)?.args).toEqual([
+      "browser",
+      "loadFailureChanged",
+      { tabId, viewId, failure },
+    ]);
+    expect(page.visible).toBe(false);
+    const driver = new CdpBrowserDriver(() => {
+      const entry = registry.get(tabId)!;
+      return {
+        contents: entry.view.webContents,
+        view: entry.view,
+        active: true,
+        loadFailure: entry.loadFailure,
+      };
+    });
+    await expect(driver.snapshot(tabId, { maxLines: 10 })).rejects.toThrow(
+      `Page stopped at ${url}`,
+    );
+    await call("reload", { tabId });
+    expect(page.webContents.loadURL).toHaveBeenLastCalledWith(url);
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+  });
+
   test("retries the original SSH address after a forward or forwarded load fails", async () => {
     const url = "http://localhost:3000/";
     const target = "http://localhost:3001/";
@@ -280,6 +369,7 @@ describe("browser visibility IPC", () => {
     expect(registry.get(tabId)?.loadFailure).toEqual({
       url,
       description: "ERR_CONNECTION_REFUSED",
+      code: -102,
     });
     await call("reload", { tabId });
     expect(resolve).toHaveBeenLastCalledWith(createArgs.workspaceId, url);
