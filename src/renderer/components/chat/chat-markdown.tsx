@@ -96,7 +96,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           const path = placesOf(safe, cwd)[0]?.path ?? safe;
           return (
             <HostFileLink
-              href={sent}
+              href={safe}
+              sent={sent}
               source={hostSource}
               path={path}
               link={link(
@@ -255,18 +256,20 @@ function useHostLink(href: string, source: FileLinkSource): [LinkedFile, LinkSta
 
 function HostFileLink({
   href,
+  sent,
   source,
   path,
   link,
   children,
 }: {
   href: string;
+  sent: string;
   source: FileLinkSource;
   path: string;
   link: React.ReactElement;
   children: React.ReactNode;
 }) {
-  const [linked, found] = useHostLink(href, source);
+  const [linked, found] = useHostLink(sent, source);
   if (found === undefined || found === null) return <span title={href}>{children}</span>;
   const target = found !== "failed" && "path" in found ? found.path : path;
   return (

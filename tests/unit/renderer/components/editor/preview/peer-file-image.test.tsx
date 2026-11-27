@@ -15,6 +15,7 @@ import {
 } from "../../../../../../src/renderer/services/chat/chat-files";
 import type { ImageBlock } from "../../../../../../src/renderer/services/chat/model";
 import { peerWorkspaceId } from "../../../../../../src/renderer/services/remote/peer-workspace";
+import { isNetworkLink } from "../../../../../../src/shared/fs/outside-url";
 import { withTestDom } from "../../../../../helpers/test-dom";
 
 function chatFiles(over: Partial<ChatFiles> = {}): ChatFiles & { opened: LinkedFile[] } {
@@ -136,6 +137,7 @@ test.each([
   ],
   ["![shot](<D:\\qa\\.shot.png>)", "D:/qa/.shot.png", "D:\\qa\\.shot.png"],
   ["![shot](<\\\\repo\\qa\\.shot.png>)", "\\\\repo\\qa\\.shot.png", "\\\\repo\\qa\\.shot.png"],
+  ["![shot](<//?/C:/qa/shot.png>)", "//?/C:/qa/shot.png", "//?/C:/qa/shot.png"],
 ])("a held Markdown image keeps the written grant target for %s", async (source, path, href) => {
   const pictures: string[] = [];
   const files = chatFiles({
@@ -143,6 +145,7 @@ test.each([
     open: async () => path,
     picture: async (path) => {
       pictures.push(path);
+      if (isNetworkLink(path)) throw new LinkGrantError("network path refused", "forbidden");
       throw new LinkGrantError("a grant is required", "grant-required");
     },
   });
@@ -173,7 +176,7 @@ test.each([
     expect(host.innerHTML).not.toContain("data-written-href");
     await act(async () => tile?.click());
   });
-  expect(pictures).toEqual([path]);
+  expect(pictures).toEqual(isNetworkLink(path) ? [] : [path]);
   expect(asked).toEqual([
     [path, { link: { href, source: { kind: "file", parent: "/repo/docs/a.md" } } }],
   ]);

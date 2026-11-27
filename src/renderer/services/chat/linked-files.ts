@@ -1,5 +1,6 @@
 import i18next from "i18next";
 import { useEffect, useMemo, useState } from "react";
+import { isNetworkLink } from "../../../shared/fs/outside-url";
 import { isUnder } from "../../../shared/fs/relative-path";
 import {
   type ChatFiles,
@@ -19,7 +20,7 @@ export function linkKey(link: LinkedFile): string {
 }
 
 export function pathInRoot(href: string, cwd: string, root: string): string | null {
-  if (!root || relativeLinkPath(href, cwd) !== null) return null;
+  if (!root || isNetworkLink(href) || relativeLinkPath(href, cwd) !== null) return null;
   const path = resolveFilePath(href, cwd);
   return path !== null && isUnder(path, root) ? path : null;
 }

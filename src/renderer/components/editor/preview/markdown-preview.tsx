@@ -10,7 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { Components } from "react-markdown";
 import { isWindowsPathTarget, linkHrefOf } from "../../../../shared/chat/link-text";
-import { isNetworkLink } from "../../../../shared/fs/outside-url";
+import { isNetworkLink, networkLinkPath } from "../../../../shared/fs/outside-url";
 import { createLogger } from "../../../../shared/log/renderer";
 import { useChatFiles } from "../../../services/chat/chat-files";
 import { grantsOf } from "../../../services/chat/linked-files";
@@ -24,6 +24,7 @@ import { buildOutsideUrl, buildWorkspaceUrl } from "../../../services/editor/pre
 import { peerOf } from "../../../services/remote/peer-workspace";
 import { copyText } from "../../../utils/clipboard";
 import { useChatLinks } from "../../chat/chat-links";
+import { ImageChip } from "../../chat/file-image";
 import {
   ImageName,
   MarkdownBody,
@@ -196,10 +197,16 @@ export function MarkdownPreview({
         const target = markdownFileTarget(node);
         const rawSrc = target?.rendered ?? (typeof src === "string" ? src : "");
         const written = target?.written ?? linkHrefOf(rawSrc);
-        const network = viaHost && (isNetworkLink(written) || isNetworkLink(rawSrc));
-        const resolved = network
-          ? null
-          : (images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx));
+        const network = viaHost ? (networkLinkPath(rawSrc) ?? networkLinkPath(written)) : null;
+        if (network !== null) {
+          return (
+            <ImageChip
+              path={network}
+              link={{ href: written, source: { kind: "file", parent: currentFileAbsPath } }}
+            />
+          );
+        }
+        const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         const unread = (
           <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />
         );

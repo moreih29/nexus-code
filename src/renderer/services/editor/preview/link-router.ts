@@ -1,4 +1,5 @@
 import { isWithinWorkspace, relativeTo } from "@/utils/path";
+import { isDrivePath, toSlashPath } from "../../../../shared/fs/drive-path";
 import { networkLinkPath } from "../../../../shared/fs/outside-url";
 import { reducePosixSegments } from "../../../../shared/fs/posix-segments";
 import { isExternalSchemeAllowed } from "../../../../shared/security/url-scheme";
@@ -82,12 +83,13 @@ function posixResolve(baseDir: string, target: string): string {
 }
 
 function normalizePosix(p: string): string {
-  const isAbs = p.startsWith("/");
-  const stack = reducePosixSegments(p, {
+  const slashed = toSlashPath(p);
+  const drive = isDrivePath(slashed) ? slashed.slice(0, 2) : "";
+  const stack = reducePosixSegments(slashed.slice(drive.length), {
     emptySegments: "discard",
     leadingParents: "discard",
   });
-  return (isAbs ? "/" : "") + stack.join("/");
+  return (drive || slashed.startsWith("/") ? `${drive}/` : "") + stack.join("/");
 }
 
 export const __testing = { hasUrlScheme, posixDirname, posixResolve, normalizePosix };
