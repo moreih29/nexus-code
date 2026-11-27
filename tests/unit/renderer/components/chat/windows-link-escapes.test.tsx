@@ -571,6 +571,54 @@ const READ_AS_RENDERED: [string, string, string[]][] = [
     "<!--\n   ```\n-->\n[a](C:\\after\\.png)",
     ["C:\\after\\.png"],
   ],
+  [
+    "a comment block that its list item's end closes",
+    "- <!-- note\n[a](C:\\after-li-comment.png)",
+    ["C:\\after-li-comment.png"],
+  ],
+  [
+    "a comment block that its quote's end closes",
+    "> <!-- note\n[a](C:\\after-q-comment.png)",
+    ["C:\\after-q-comment.png"],
+  ],
+  [
+    "a comment block in a quote then a blank line",
+    "> <!-- note\n\n[a](C:\\after-q-comment-blank.png)",
+    ["C:\\after-q-comment-blank.png"],
+  ],
+  [
+    "a comment block closed in its list item",
+    "- <!-- a\n  b -->\n[c](C:\\after-li-closed.png)",
+    ["C:\\after-li-closed.png"],
+  ],
+  ["a comment block across a blank line of its item", "- <!-- a\n\n  [b](C:\\in.png)\n  -->", []],
+  [
+    "a comment block closed in its quote",
+    "> <!-- a\n> [b](C:\\in-q.png)\n> -->\n[c](C:\\after.png)",
+    ["C:\\after.png"],
+  ],
+  [
+    "a definition after an item that holds only a comment",
+    "- <!-- a\n[r]: C:\\after-item.png\n[r]",
+    ["C:\\after-item.png"],
+  ],
+  ["a definition on a bullet line","- [r]: C:\\listdef.png\n\n[r]", ["C:\\listdef.png"]],
+  ["a definition on a numbered line", "1. [r]: C:\\numdef.png\n\n[r]", ["C:\\numdef.png"]],
+  ["a definition on each item", '- [r]: C:\\li.png "t"\n- [r]', ["C:\\li.png"]],
+  ["a definition-like line inside an item", "- item\n  [r]: C:\\cont.png\n\n[r]", []],
+  ["a definition with text after its target", "[r1]: C:/d0.png---text [r1]: C:/d3.png\n\n[r1]", []],
+  ["a definition with a fence mark after its target", "[r0]: C:/d0.png\\\\  ~~~x\n\n[x][r0]", []],
+  ["a definition with a title", '[r]: C:\\t.png "title"\n\n[r]', ["C:\\t.png"]],
+  ["a definition with a title on the next line", '[r]: C:\\t2.png\n"title"\n\n[r]', ["C:\\t2.png"]],
+  ["a definition with text after its title", '[r]: C:\\t3.png "title" junk\n\n[r]', []],
+  [
+    "a definition then a paragraph that starts like a title",
+    '[r]: C:\\t4.png\n"title" junk\n\n[r]',
+    ["C:\\t4.png"],
+  ],
+  ["an escaped reference", "\\[r] and [r]\n\n[r]: C:\\esc.png", ["C:\\esc.png"]],
+  ["a link title a list item cuts", '[a](C:\\x.png "t\n- y")', []],
+  ["a link target a list item cuts", "[a](\n- C:\\y.png)", []],
 ];
 
 describe("a long answer whose links are resolved together", () => {

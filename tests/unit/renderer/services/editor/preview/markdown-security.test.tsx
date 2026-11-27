@@ -65,6 +65,19 @@ describe("MarkdownPreview — disallowed link schemes", () => {
   });
 });
 
+describe("MarkdownPreview — link data stays off the page", () => {
+  test("no written target or syntax node on an anchor or an image", () => {
+    const source = String.raw`See [a](C:\x\.y.txt), [b](docs/b.md), [r] and ![i](./img/i.png).
+
+[r]: C:\r\.png`;
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    expect(html.match(/<a /g)?.length).toBe(3);
+    expect(html).toContain("<img");
+    expect(html).not.toMatch(/data-written-href|datawrittenhref/i);
+    expect(html).not.toMatch(/\snode=/);
+  });
+});
+
 describe("MarkdownPreview — workspace image rewriting", () => {
   test("relative image src is rewritten to nexus-workspace:// URL", () => {
     const source = "![logo](./img/logo.png)";

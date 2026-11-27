@@ -77,22 +77,31 @@ function eachNode(node: MarkdownNode, visit: (node: MarkdownNode) => void): void
   for (const child of node.children ?? []) eachNode(child, visit);
 }
 
-function carryWritten(node: MarkdownNode, written: string): void {
+function carriedHref(written: string): string | null {
   const target = commonMarkDestination(written);
-  if (/^[A-Za-z][A-Za-z0-9+.-]+:/.test(target) && !/^file:\/\//i.test(target)) return;
+  if (/^[A-Za-z][A-Za-z0-9+.-]+:/.test(target) && !/^file:\/\//i.test(target)) return null;
+  return linkHrefOf(written);
+}
+
+function carryHref(node: MarkdownNode, href: string | null): void {
+  if (href === null) return;
   node.data = {
     ...node.data,
-    hProperties: { ...node.data?.hProperties, [WRITTEN_HREF]: linkHrefOf(written) },
+    hProperties: { ...node.data?.hProperties, [WRITTEN_HREF]: href },
   };
 }
 
+function carryWritten(node: MarkdownNode, written: string): void {
+  carryHref(node, carriedHref(written));
+}
+
 function keepWrittenTargets(markdown: string, tree: MarkdownNode): void {
-  const definitions = new Map<string, string>();
+  const definitions = new Map<string, string | null>();
   eachNode(tree, (node) => {
     if (node.type !== "definition" || node.identifier === undefined) return;
     const written = definitionWritten(markdown, node);
     if (written === null) return;
-    if (!definitions.has(node.identifier)) definitions.set(node.identifier, written);
+    if (!definitions.has(node.identifier)) definitions.set(node.identifier, carriedHref(written));
     if (isWindowsPathTarget(written)) node.url = linkDestination(written);
   });
   eachNode(tree, (node) => {
@@ -102,8 +111,8 @@ function keepWrittenTargets(markdown: string, tree: MarkdownNode): void {
       if (isWindowsPathTarget(written)) node.url = linkDestination(written);
       carryWritten(node, written);
     } else if (node.type === "linkReference" || node.type === "imageReference") {
-      const written = node.identifier === undefined ? undefined : definitions.get(node.identifier);
-      if (written !== undefined) carryWritten(node, written);
+      const href = node.identifier === undefined ? undefined : definitions.get(node.identifier);
+      if (href !== undefined) carryHref(node, href);
     }
   });
 }

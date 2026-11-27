@@ -11,6 +11,7 @@ import {
 } from "electron";
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
+import { logLinkTextStops } from "../shared/chat/link-text";
 import { DEFAULT_THEME } from "../shared/design-tokens";
 import { limitLog } from "../shared/log/limit";
 import { createLogger, initMainLogger } from "../shared/log/main";
@@ -171,6 +172,8 @@ initMainLogger();
 const logger = createLogger("main");
 if (logsDirWarning) logger.warn(logsDirWarning);
 const gitWatcherFailures = limitLog(logger);
+const linkTextStops = limitLog(createLogger("link-text"));
+logLinkTextStops((line) => linkTextStops.log("warn", "stop", line));
 
 if (!app.requestSingleInstanceLock()) {
   logger.info("NexusCode already runs on this profile: showing it instead");

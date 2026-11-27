@@ -171,7 +171,7 @@ export function MarkdownPreview({
 
   const components = useMemo<Components>(
     () => ({
-      a({ href, children, ...rest }) {
+      a({ href, children, node: _node, ...rest }) {
         const safeHref = typeof href === "string" ? href : "";
         return (
           <a {...rest} href={safeHref} onClick={(e) => onLinkClick(safeHref, e)}>
@@ -179,7 +179,7 @@ export function MarkdownPreview({
           </a>
         );
       },
-      img({ src, alt, ...rest }) {
+      img({ src, alt, node: _node, ...rest }) {
         const rawSrc = typeof src === "string" ? src : "";
         const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         const unread = (

@@ -12,13 +12,15 @@ const NAMED_ENTITIES: Readonly<Record<string, string>> = {
 const LINE_ANCHOR = /#L\d+(?:-L?\d+)?$/i;
 const LINE_SUFFIX = /:\d+(?::\d+)?$/;
 
-const AUTOLINK = /<((?:file:|[A-Za-z]:[\\/]|\/(?![A-Za-z][\w-]*>))[^>\s]+)>/g;
-const DEFINITION = /^[ \t>]*\[((?:[^\][\\\n]|\\.){1,999})\]:/gm;
-const REFERENCE = /(!?)\[((?:[^\][\\\n]|\\.)+)\](?:\[((?:[^\][\\\n]|\\.)*)\])?/g;
+const AUTOLINK = /<((?:file:|[A-Za-z]:[\\/]|\/(?![A-Za-z][\w-]*>))[^<>\s]+)>/g;
 const HTML_ATTRIBUTE = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 const CODE = /`([^`\n]+)`/g;
 const WINDOWS_PATH_TARGET = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
 const MAX_PAREN_DEPTH = 32;
+const MAX_LABEL = 999;
+
+export const LINK_TEXT_TIME_LIMIT_MS = 5000;
+const CHECK_EVERY = 1024;
 
 function entity(name: string): string | undefined {
   if (name.startsWith("#")) {
@@ -79,6 +81,75 @@ export function cleanLinkHref(raw: string): string {
   return withoutLineTail(decoded(linkDestination(raw)).replace(/\\/g, "/"));
 }
 
+export interface ExtractionLimit {
+  readonly ms?: number;
+  readonly now?: () => number;
+  readonly every?: number;
+}
+
+let writeStop: (line: string) => void = (line) => console.warn(line);
+
+export function logLinkTextStops(write: (line: string) => void): void {
+  writeStop = write;
+}
+
+class Budget {
+  cut: number;
+  stoppedIn: string | null = null;
+  private stoppedAt = 0;
+  private steps = 0;
+  private readonly now: () => number;
+  private readonly ms: number;
+  private readonly every: number;
+  private readonly started: number;
+
+  constructor(
+    readonly length: number,
+    limit: ExtractionLimit = {},
+  ) {
+    this.cut = length;
+    this.now = limit.now ?? (() => performance.now());
+    this.ms = limit.ms ?? LINK_TEXT_TIME_LIMIT_MS;
+    this.every = Math.max(1, limit.every ?? CHECK_EVERY);
+    this.started = this.now();
+  }
+
+  private late(): boolean {
+    if (this.stoppedIn !== null) return true;
+    if (++this.steps < this.every) return false;
+    this.steps = 0;
+    return this.now() - this.started > this.ms;
+  }
+
+  stops(pass: string, at: number): boolean {
+    if (at >= this.cut) return true;
+    if (!this.late()) return false;
+    this.cut = at;
+    this.stop(pass, at);
+    return true;
+  }
+
+  private stop(pass: string, at: number): void {
+    if (this.stoppedIn !== null) return;
+    this.stoppedIn = pass;
+    this.stoppedAt = at;
+  }
+
+  ends(pass: string): boolean {
+    if (!this.late()) return false;
+    this.stop(pass, this.length);
+    return true;
+  }
+
+  report(): void {
+    if (this.stoppedIn === null) return;
+    const ms = Math.round(this.now() - this.started);
+    writeStop(
+      `link text: stopped after ${ms} ms in the ${this.stoppedIn} pass at ${this.stoppedAt} of ${this.length} characters`,
+    );
+  }
+}
+
 function escapedAt(text: string, at: number): boolean {
   return text[at] === "\\" && at + 1 < text.length && ESCAPABLE.test(text[at + 1] as string);
 }
@@ -89,10 +160,10 @@ function lineEndAt(text: string, at: number): number {
   return 0;
 }
 
-function skipWhitespace(text: string, at: number): number {
+function skipWhitespace(text: string, at: number, limit: number): number {
   let i = at;
   let lines = 0;
-  while (i < text.length) {
+  while (i < limit) {
     const c = text[i];
     if (c === " " || c === "\t") {
       i++;
@@ -103,7 +174,17 @@ function skipWhitespace(text: string, at: number): number {
     lines++;
     i += end;
   }
+  return Math.min(i, limit);
+}
+
+function skipSpaces(text: string, at: number, limit: number): number {
+  let i = at;
+  while (i < limit && (text[i] === " " || text[i] === "\t")) i++;
   return i;
+}
+
+function endsLine(text: string, at: number, limit: number): boolean {
+  return at >= limit || lineEndAt(text, at) > 0;
 }
 
 export interface ScannedTarget {
@@ -112,9 +193,9 @@ export interface ScannedTarget {
   readonly end: number;
 }
 
-function scanTarget(text: string, at: number): ScannedTarget | null {
+function scanTarget(text: string, at: number, limit: number): ScannedTarget | null {
   if (text[at] === "<") {
-    for (let i = at + 1; i < text.length; i++) {
+    for (let i = at + 1; i < limit; i++) {
       if (escapedAt(text, i)) {
         i++;
         continue;
@@ -127,7 +208,7 @@ function scanTarget(text: string, at: number): ScannedTarget | null {
   }
   let depth = 0;
   let i = at;
-  while (i < text.length) {
+  while (i < limit) {
     if (escapedAt(text, i)) {
       i += 2;
       continue;
@@ -144,15 +225,16 @@ function scanTarget(text: string, at: number): ScannedTarget | null {
     i++;
   }
   if (depth !== 0 || i === at) return null;
-  return { written: text.slice(at, i), start: at, end: i };
+  const end = Math.min(i, limit);
+  return { written: text.slice(at, end), start: at, end };
 }
 
-function scanTitle(text: string, at: number): number | null {
+function scanTitle(text: string, at: number, limit: number): number | null {
   const open = text[at];
   if (open !== '"' && open !== "'" && open !== "(") return null;
   const close = open === "(" ? ")" : open;
   let blank = false;
-  for (let i = at + 1; i < text.length; i++) {
+  for (let i = at + 1; i < limit; i++) {
     if (escapedAt(text, i)) {
       i++;
       blank = false;
@@ -171,25 +253,54 @@ function scanTitle(text: string, at: number): number | null {
   return null;
 }
 
-export function inlineTargetAt(text: string, at: number): ScannedTarget | null {
-  const start = skipWhitespace(text, at);
+export function inlineTargetAt(
+  text: string,
+  at: number,
+  limit: number = text.length,
+): ScannedTarget | null {
+  const start = skipWhitespace(text, at, limit);
   if (text[start] === ")") return null;
-  const target = scanTarget(text, start);
+  const target = scanTarget(text, start, limit);
   if (!target) return null;
-  const gap = skipWhitespace(text, target.end);
-  if (text[gap] === ")") return { ...target, end: gap + 1 };
+  const gap = skipWhitespace(text, target.end, limit);
+  if (gap < limit && text[gap] === ")") return { ...target, end: gap + 1 };
   if (gap === target.end) return null;
-  const titled = scanTitle(text, gap);
+  const titled = scanTitle(text, gap, limit);
   if (titled === null) return null;
-  const after = skipWhitespace(text, titled);
-  return text[after] === ")" ? { ...target, end: after + 1 } : null;
+  const after = skipWhitespace(text, titled, limit);
+  return after < limit && text[after] === ")" ? { ...target, end: after + 1 } : null;
 }
 
 export function definitionTargetAt(text: string, at: number): ScannedTarget | null {
-  const target = scanTarget(text, skipWhitespace(text, at));
+  const target = scanTarget(text, skipWhitespace(text, at, text.length), text.length);
   if (!target) return null;
   const next = text[target.end];
   return next === undefined || /\s/.test(next) ? target : null;
+}
+
+interface DefinitionEnd {
+  readonly target: ScannedTarget;
+  readonly end: number;
+}
+
+function definitionEndAt(text: string, at: number, limit: number): DefinitionEnd | null {
+  const target = scanTarget(text, skipWhitespace(text, at, limit), limit);
+  if (!target) return null;
+  const rest = skipSpaces(text, target.end, limit);
+  if (endsLine(text, rest, limit)) {
+    const next = skipWhitespace(text, rest, limit);
+    const titled = next > rest ? scanTitle(text, next, limit) : null;
+    if (titled !== null) {
+      const after = skipSpaces(text, titled, limit);
+      if (endsLine(text, after, limit)) return { target, end: after };
+    }
+    return { target, end: rest };
+  }
+  if (rest === target.end) return null;
+  const titled = scanTitle(text, rest, limit);
+  if (titled === null) return null;
+  const after = skipSpaces(text, titled, limit);
+  return endsLine(text, after, limit) ? { target, end: after } : null;
 }
 
 function blank(from: number, to: number, into: string[]): void {
@@ -201,17 +312,18 @@ interface Line {
   readonly end: number;
 }
 
-function linesOf(text: string): Line[] {
+function linesOf(text: string, budget: Budget): Line[] {
   const lines: Line[] = [];
   let start = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c !== "\n" && c !== "\r") continue;
+    if (budget.stops("lines", start)) return lines;
     lines.push({ start, end: i });
     if (c === "\r" && text[i + 1] === "\n") i++;
     start = i + 1;
   }
-  lines.push({ start, end: text.length });
+  if (!budget.stops("lines", start)) lines.push({ start, end: text.length });
   return lines;
 }
 
@@ -293,7 +405,17 @@ function startsBlock(text: string, at: number, end: number): boolean {
   );
 }
 
-function blockBreaks(text: string, lines: readonly Line[]): number[] {
+function bareItem(text: string, at: number, end: number): boolean {
+  let i = at;
+  for (;;) {
+    const marker = listMarkerEnd(text, i, end, false);
+    if (marker === -1) return false;
+    i = indentAt(text, marker, end, 0).at;
+    if (i === end) return true;
+  }
+}
+
+function blockBreaks(text: string, lines: readonly Line[], budget: Budget): number[] {
   const breaks: number[] = [];
   let quoted = 0;
   let paragraph = false;
@@ -301,6 +423,7 @@ function blockBreaks(text: string, lines: readonly Line[]): number[] {
   let heading = false;
   let gap = false;
   for (const [n, line] of lines.entries()) {
+    if (budget.stops("breaks", line.start)) break;
     const { quotes, at } = quotesAt(text, line, Number.POSITIVE_INFINITY);
     const lead = indentAt(text, at, line.end, 0);
     const empty = lead.at === line.end;
@@ -315,19 +438,22 @@ function blockBreaks(text: string, lines: readonly Line[]): number[] {
       (!indented && startsBlock(text, lead.at, line.end));
     if (n > 0 && opens) breaks.push(line.start);
     quoted = quotes;
+    const bare = !empty && !indented && bareItem(text, lead.at, line.end);
     code = indented;
-    gap = empty;
+    gap = empty || bare;
     heading = !empty && !indented && headingAt(text, lead.at, line.end);
-    paragraph = !empty && !indented && !heading;
+    paragraph = !empty && !indented && !heading && !bare;
   }
   return breaks;
 }
 
-interface OpenFence extends FenceRun {
+interface OpenBlock {
   readonly from: number;
   readonly quotes: number;
   readonly base: number;
 }
+
+interface OpenFence extends FenceRun, OpenBlock {}
 
 interface Container {
   readonly at: number;
@@ -335,39 +461,45 @@ interface Container {
   readonly base: number;
 }
 
-function blankFences(text: string, lines: readonly Line[], out: string[]): void {
+function blankFences(text: string, lines: readonly Line[], out: string[], budget: Budget): void {
   let fence: OpenFence | null = null;
+  let comment: OpenBlock | null = null;
   let items: number[] = [];
   let quoted = 0;
   let paragraph = false;
   let last = 0;
-  let comment = false;
   for (const line of lines) {
-    if (comment) {
-      comment = !text.slice(line.start, line.end).includes("-->");
-      last = line.end;
-      continue;
+    const open: OpenBlock | null = fence ?? comment;
+    if (budget.stops("fences", line.start)) {
+      if (open) blank(open.from, line.start, out);
+      return;
     }
-    if (fence) {
-      const { quotes, at } = quotesAt(text, line, fence.quotes);
+    if (open) {
+      const { quotes, at } = quotesAt(text, line, open.quotes);
       const lead = indentAt(text, at, line.end, 0);
       const empty = lead.at === line.end;
-      if (quotes === fence.quotes && (empty || lead.col >= fence.base)) {
-        const close = !empty && lead.col - fence.base <= 3 && fenceAt(text, lead.at, line.end);
-        if (
-          close &&
-          close.char === fence.char &&
-          close.size >= fence.size &&
-          isBlank(text, close.rest, line.end)
-        ) {
-          blank(fence.from, line.end, out);
-          fence = null;
+      if (quotes === open.quotes && (empty || lead.col >= open.base)) {
+        if (fence) {
+          const close = !empty && lead.col - fence.base <= 3 && fenceAt(text, lead.at, line.end);
+          if (
+            close &&
+            close.char === fence.char &&
+            close.size >= fence.size &&
+            isBlank(text, close.rest, line.end)
+          ) {
+            blank(fence.from, line.end, out);
+            fence = null;
+          }
+        } else if (text.slice(at, line.end).includes("-->")) {
+          blank(open.from, line.end, out);
+          comment = null;
         }
         last = line.end;
         continue;
       }
-      blank(fence.from, last, out);
+      blank(open.from, last, out);
       fence = null;
+      comment = null;
     }
     last = line.end;
     const { quotes, at } = quotesAt(text, line, Number.POSITIVE_INFINITY);
@@ -388,20 +520,23 @@ function blankFences(text: string, lines: readonly Line[], out: string[]): void 
     while (items.length > 0 && lead.col < (items[items.length - 1] as number)) items.pop();
     const inner = containerOf(text, line, lead, items, paragraph);
     if (inner.at !== lead.at) paragraph = false;
-    if (inner.col - inner.base <= 3 && text.startsWith("<!--", inner.at)) {
-      comment = !text.slice(inner.at + 2, line.end).includes("-->");
+    const near = inner.col - inner.base <= 3;
+    if (near && text.startsWith("<!--", inner.at)) {
+      if (text.slice(inner.at + 2, line.end).includes("-->")) blank(inner.at, line.end, out);
+      else comment = { from: inner.at, quotes, base: inner.base };
       paragraph = false;
       continue;
     }
-    const opened = inner.col - inner.base <= 3 ? fenceAt(text, inner.at, line.end) : null;
+    const opened = near ? fenceAt(text, inner.at, line.end) : null;
     if (opened && !(opened.char === "`" && text.slice(opened.rest, line.end).includes("`"))) {
       fence = { ...opened, from: line.start, quotes, base: inner.base };
       paragraph = false;
-    } else if (inner.col - inner.base <= 3) {
+    } else if (near) {
       paragraph = !headingAt(text, inner.at, line.end);
     }
   }
-  if (fence) blank(fence.from, text.length, out);
+  const open = fence ?? comment;
+  if (open) blank(open.from, text.length, out);
 }
 
 function containerOf(
@@ -442,12 +577,13 @@ interface Run {
   readonly paragraph: number;
 }
 
-function blankInline(text: string, lines: readonly Line[], out: string[]): void {
+function blankInline(text: string, lines: readonly Line[], out: string[], budget: Budget): void {
   const runs: Run[] = [];
   const bySize = new Map<number, number[]>();
-  const breaks = blockBreaks(text, lines);
+  const breaks = blockBreaks(text, lines, budget);
   let paragraph = 0;
   for (const line of lines) {
+    if (budget.stops("spans", line.start)) return;
     while (paragraph < breaks.length && (breaks[paragraph] as number) <= line.start) paragraph++;
     for (let i = line.start; i < line.end; i++) {
       if (text[i] !== "`") continue;
@@ -471,17 +607,16 @@ function blankInline(text: string, lines: readonly Line[], out: string[]): void 
     return closer && closer.paragraph === (runs[k] as Run).paragraph ? closer : null;
   };
   const none = text.length + 1;
-  let comment = text.indexOf("<!--");
-  if (comment === -1) comment = none;
+  let comment = -1;
   let close = -1;
   let k = 0;
-  let line = 0;
   let brk = 0;
   let i = 0;
   for (;;) {
+    if (budget.stops("spans", i)) return;
     if (comment < i) {
       comment = text.indexOf("<!--", i);
-      if (comment === -1) comment = none;
+      if (comment === -1 || comment >= budget.cut) comment = none;
     }
     while (k < runs.length && (runs[k] as Run).at < i) k++;
     const run = runs[k];
@@ -505,18 +640,6 @@ function blankInline(text: string, lines: readonly Line[], out: string[]): void 
       close = text.indexOf("-->", comment + 2);
       if (close === -1) close = none;
     }
-    while (line < lines.length - 1 && (lines[line] as Line).end < comment) line++;
-    const home = lines[line] as Line;
-    if (prefixEnd(text, home) === comment) {
-      let end = text.length;
-      if (close !== none) {
-        while (line < lines.length - 1 && (lines[line] as Line).end < close + 3) line++;
-        end = (lines[line] as Line).end;
-      }
-      blank(comment, end, out);
-      i = end;
-      continue;
-    }
     while (brk < breaks.length && (breaks[brk] as number) < comment) brk++;
     if (close !== none && (breaks[brk] ?? none) > close) {
       blank(comment, close + 3, out);
@@ -538,12 +661,19 @@ function prefixEnd(text: string, line: Line): number {
   return lead.col <= 3 ? lead.at : -1;
 }
 
-export function withoutCode(text: string): string {
+function withoutCodeIn(text: string, lines: readonly Line[], budget: Budget): string {
   const out = text.split("");
-  const lines = linesOf(text);
-  blankFences(text, lines, out);
-  blankInline(out.join(""), lines, out);
+  blankFences(text, lines, out, budget);
+  if (budget.stoppedIn !== null) return text;
+  blankInline(out.join(""), lines, out, budget);
   return out.join("");
+}
+
+export function withoutCode(text: string): string {
+  const budget = new Budget(text.length);
+  const prose = withoutCodeIn(text, linesOf(text, budget), budget);
+  budget.report();
+  return prose;
 }
 
 export function referenceLabel(label: string): string {
@@ -561,47 +691,65 @@ interface Definitions {
   readonly spans: [number, number][];
 }
 
-function afterDefinition(text: string, at: number, lastDefinition: number): boolean {
-  if (lastDefinition < 0) return false;
-  let end = at - 1;
-  if (text[end] === "\n" && text[end - 1] === "\r") end--;
-  let start = end;
-  while (start > lastDefinition && text[start - 1] !== "\n" && text[start - 1] !== "\r") start--;
-  return lastDefinition >= start;
+function labelEndAt(text: string, at: number, end: number): number {
+  let units = 0;
+  for (let i = at + 1; i < end; i++) {
+    const c = text[i];
+    if (c === "]") return units > 0 ? i : -1;
+    if (c === "[" || ++units > MAX_LABEL) return -1;
+    if (c === "\\" && i + 1 < end) i++;
+  }
+  return -1;
 }
 
-function definitionsIn(prose: string, breaks: readonly number[]): Definitions {
+function definitionsIn(
+  prose: string,
+  lines: readonly Line[],
+  breaks: readonly number[],
+  budget: Budget,
+): Definitions {
   const targets = new Map<string, string>();
   const spans: [number, number][] = [];
-  let last = -1;
   let brk = 0;
-  for (const match of prose.matchAll(DEFINITION)) {
-    while (brk < breaks.length && (breaks[brk] as number) < match.index) brk++;
-    const opens = match.index === 0 || breaks[brk] === match.index;
-    if (!opens && !afterDefinition(prose, match.index, last)) continue;
-    const label = referenceLabel(match[1] as string);
-    const target = definitionTargetAt(prose, match.index + match[0].length);
-    if (!target || label === "") continue;
-    spans.push([match.index, target.end]);
-    last = target.end;
-    if (!targets.has(label)) targets.set(label, target.written);
+  let covered = -1;
+  let defined = -2;
+  for (const [n, line] of lines.entries()) {
+    if (budget.stops("definitions", line.start)) break;
+    if (n <= covered) continue;
+    while (brk < breaks.length && (breaks[brk] as number) < line.start) brk++;
+    const opens = n === 0 || breaks[brk] === line.start || defined === n - 1;
+    if (!opens) continue;
+    const at = prefixEnd(prose, line);
+    if (at === -1 || prose[at] !== "[") continue;
+    const close = labelEndAt(prose, at, line.end);
+    if (close === -1 || prose[close + 1] !== ":") continue;
+    const label = referenceLabel(prose.slice(at + 1, close));
+    if (label === "") continue;
+    const next = breaks[brk] === line.start ? breaks[brk + 1] : breaks[brk];
+    const found = definitionEndAt(prose, close + 2, Math.min(next ?? prose.length, budget.cut));
+    if (!found) continue;
+    spans.push([at, found.end]);
+    if (!targets.has(label)) targets.set(label, found.target.written);
+    covered = n;
+    while (covered + 1 < lines.length && (lines[covered] as Line).end < found.end) covered++;
+    defined = covered;
   }
   return { targets, spans };
 }
 
-export function writtenLinksIn(text: string): WrittenLink[] {
-  return linksIn(withoutCode(text));
-}
-
-function linksIn(prose: string): WrittenLink[] {
+function inlineLinksIn(
+  prose: string,
+  breaks: readonly number[],
+  definitions: Definitions,
+  budget: Budget,
+): WrittenLink[] {
   const links: WrittenLink[] = [];
-  const breaks = blockBreaks(prose, linesOf(prose));
-  const definitions = definitionsIn(prose, breaks);
   const openers: number[] = [];
   let floor = 0;
   let span = 0;
   let brk = 0;
   for (let i = 0; i < prose.length; i++) {
+    if (budget.stops("links", i)) break;
     while (
       span < definitions.spans.length &&
       (definitions.spans[span] as [number, number])[1] <= i
@@ -641,7 +789,8 @@ function linksIn(prose: string): WrittenLink[] {
     const inactive = !image && openers.length < floor;
     if (floor > openers.length) floor = openers.length;
     if (inactive || prose[i + 1] !== "(") continue;
-    const target = inlineTargetAt(prose, i + 2);
+    const limit = Math.min(breaks[brk] ?? prose.length, budget.cut);
+    const target = inlineTargetAt(prose, i + 2, limit);
     if (!target) continue;
     if (image)
       while (links.length > 0 && (links[links.length - 1] as WrittenLink).at > open) links.pop();
@@ -649,49 +798,154 @@ function linksIn(prose: string): WrittenLink[] {
     links.push({ written: target.written, image, at: i });
     i = target.end - 1;
   }
-  if (definitions.targets.size > 0) {
-    let within = 0;
-    for (const match of prose.matchAll(REFERENCE)) {
-      while (
-        within < definitions.spans.length &&
-        (definitions.spans[within] as [number, number])[1] <= match.index
-      ) {
-        within++;
-      }
-      if ((definitions.spans[within]?.[0] ?? Number.POSITIVE_INFINITY) <= match.index) continue;
-      const after = prose[match.index + match[0].length];
-      if (match[3] === undefined && after === "(") continue;
-      const label = referenceLabel(match[3] ? match[3] : (match[2] as string));
-      const written = definitions.targets.get(label);
-      if (written !== undefined) links.push({ written, image: match[1] === "!", at: match.index });
+  return links;
+}
+
+function labelAfter(prose: string, at: number, end: number): number {
+  for (let j = at; j < end; j++) {
+    const c = prose[j];
+    if (c === "\\" && j + 1 < end && lineEndAt(prose, j + 1) === 0) {
+      j++;
+      continue;
     }
+    if (c === "]") return j;
+    if (c === "[" || c === "\n" || c === "\r") return -1;
   }
-  return links.sort((a, b) => a.at - b.at);
+  return -1;
+}
+
+function referencesIn(
+  prose: string,
+  definitions: Definitions,
+  links: WrittenLink[],
+  budget: Budget,
+): void {
+  if (definitions.targets.size === 0) return;
+  const end = budget.cut;
+  let open = -1;
+  let within = 0;
+  for (let i = 0; i < end; i++) {
+    if (budget.ends("references")) return;
+    const c = prose[i];
+    if (c === "\\" && i + 1 < end && lineEndAt(prose, i + 1) === 0) {
+      i++;
+      continue;
+    }
+    if (c === "[") {
+      open = i;
+      continue;
+    }
+    if (c !== "]") {
+      if (c === "\n" || c === "\r") open = -1;
+      continue;
+    }
+    const from = open;
+    open = -1;
+    if (from === -1 || i === from + 1) continue;
+    let stop = i + 1;
+    let second: string | undefined;
+    if (prose[i + 1] === "[") {
+      const close = labelAfter(prose, i + 2, end);
+      if (close !== -1) {
+        second = prose.slice(i + 2, close);
+        stop = close + 1;
+      }
+    }
+    const first = prose.slice(from + 1, i);
+    const image = prose[from - 1] === "!";
+    const at = image ? from - 1 : from;
+    i = stop - 1;
+    while (
+      within < definitions.spans.length &&
+      (definitions.spans[within] as [number, number])[1] <= at
+    ) {
+      within++;
+    }
+    if ((definitions.spans[within]?.[0] ?? Number.POSITIVE_INFINITY) <= at) continue;
+    if (second === undefined && prose[stop] === "(") continue;
+    const label = referenceLabel(second ? second : first);
+    const written = definitions.targets.get(label);
+    if (written !== undefined) links.push({ written, image, at });
+  }
+}
+
+interface Extraction {
+  readonly prose: string;
+  readonly links: WrittenLink[];
+  readonly safe: number;
+}
+
+function safeEnd(budget: Budget, breaks: readonly number[]): number {
+  if (budget.cut >= budget.length) return Number.POSITIVE_INFINITY;
+  let safe = 0;
+  for (const at of breaks) {
+    if (at > budget.cut) break;
+    safe = at;
+  }
+  return safe;
+}
+
+function extract(text: string, html: boolean, budget: Budget): Extraction {
+  const lines = linesOf(text, budget);
+  const prose = html || budget.stoppedIn !== null ? text : withoutCodeIn(text, lines, budget);
+  if (budget.stoppedIn !== null) return { prose, links: [], safe: 0 };
+  const breaks = blockBreaks(prose, lines, budget);
+  const definitions = definitionsIn(prose, lines, breaks, budget);
+  const links = inlineLinksIn(prose, breaks, definitions, budget);
+  referencesIn(prose, definitions, links, budget);
+  const safe = safeEnd(budget, breaks);
+  return {
+    prose,
+    safe,
+    links: links.filter((link) => link.at < safe).sort((a, b) => a.at - b.at),
+  };
+}
+
+export function writtenLinksIn(text: string, limit?: ExtractionLimit): WrittenLink[] {
+  const budget = new Budget(text.length, limit);
+  const { links } = extract(text, false, budget);
+  budget.report();
+  return links;
 }
 
 export interface LinkTextOptions {
   readonly html?: boolean;
   readonly code?: (written: string) => boolean;
+  readonly limit?: ExtractionLimit;
 }
 
-export function linkTargetsIn(
+function targetsIn(
   text: string,
-  { html = false, code }: LinkTextOptions = {},
+  { html = false, code }: LinkTextOptions,
+  budget: Budget,
 ): string[] {
-  const targets: string[] = [];
-  const prose = html ? text : withoutCode(text);
-  for (const link of linksIn(prose)) targets.push(link.written);
-  for (const match of prose.matchAll(AUTOLINK)) targets.push(match[1] as string);
+  const { prose, links, safe } = extract(text, html, budget);
+  const targets = links.map((link) => link.written);
+  for (const match of prose.matchAll(AUTOLINK)) {
+    if (match.index >= safe || budget.ends("autolinks")) break;
+    targets.push(match[1] as string);
+  }
   if (html) {
-    for (const match of text.matchAll(HTML_ATTRIBUTE)) targets.push(match[1] ?? match[2] ?? "");
+    for (const match of text.matchAll(HTML_ATTRIBUTE)) {
+      if (budget.ends("attributes")) break;
+      targets.push(match[1] ?? match[2] ?? "");
+    }
   }
   if (code) {
     for (const match of text.matchAll(CODE)) {
+      if (budget.ends("code")) break;
       const written = match[1] as string;
       if (code(written)) targets.push(written);
     }
   }
   return targets.filter((target) => target !== "");
+}
+
+export function linkTargetsIn(text: string, options: LinkTextOptions = {}): string[] {
+  const budget = new Budget(text.length, options.limit);
+  const targets = targetsIn(text, options, budget);
+  budget.report();
+  return targets;
 }
 
 export function sameLinkHref(a: string, b: string): boolean {
@@ -700,11 +954,17 @@ export function sameLinkHref(a: string, b: string): boolean {
 }
 
 export function linkTargetSet(text: string, options: LinkTextOptions = {}): ReadonlySet<string> {
+  const budget = new Budget(text.length, options.limit);
+  const written = new Set<string>();
   const targets = new Set<string>();
-  for (const target of linkTargetsIn(text, options)) {
+  for (const target of targetsIn(text, options, budget)) {
+    if (written.has(target)) continue;
+    if (budget.ends("targets")) break;
+    written.add(target);
     const cleaned = cleanLinkHref(target);
     if (cleaned !== "") targets.add(cleaned);
   }
+  budget.report();
   return targets;
 }
 

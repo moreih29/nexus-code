@@ -131,16 +131,16 @@ The host compares links after it cleans both sides the same way:
 
 Then they must match exactly.
 
-A reader sends every inline or reference link and image as written: `href` is the target from the text (for a reference, from the definition it uses) with only `<...>` and a line tail taken off, not the target a Markdown parser gives. It shows a Windows path target as step 1 reads it.
+A chat view sends every inline or reference link and image as written: `href` is the target from the text (for a reference, from the definition it uses) with only `<...>` and a line tail taken off, not the target a Markdown parser gives. It shows a Windows path target as step 1 reads it.
 
-Links are inline link and image targets (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through a definition that starts a paragraph, autolinks, and backtick paths of files a tool call touched. In an `.html` parent, `href` and `src` values count too. Apart from those backtick paths, nothing inside code or an HTML comment is a link. The host finds them as CommonMark and GFM do in these respects:
+Links are inline link and image targets (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through a definition that starts a paragraph or a list item and has nothing after its target but an optional title, autolinks, and backtick paths of files a tool call touched. In an `.html` parent, `href` and `src` values count too. Apart from those backtick paths, nothing inside code or an HTML comment is a link. The host finds them as CommonMark and GFM do in these respects:
 
-- Fenced code blocks with backticks or tildes, with LF or CRLF line ends, also inside `>` quotes and list items, opened at most three spaces past the quote or list item's content. A block left open runs to the end of its quote or list item, or of the text.
-- Code spans, and HTML comments in a line or opening a line (such a comment left open runs to the end of the text).
-- A link's text, a code span and a comment in a line end at a blank line and where another block starts (a quote, a list item, a heading, a fence, an HTML comment).
+- Fenced code blocks with backticks or tildes, with any line ending, also inside `>` quotes and list items, opened at most three spaces past the quote or list item's content. A block left open runs to the end of its quote or list item, or of the text.
+- Code spans, and HTML comments in a line or opening a line (such a comment left open runs to the end of its quote or list item, or of the text).
+- A link's text, target and title, a code span and a comment in a line end at a blank line and where another block starts (a quote, a list item, a heading, a fence, an HTML comment).
 - A `](` with no `[` before it is no link, nor is a link inside another link's text or an image's alt text.
 
-Where the host still differs: links in a block indented four spaces count, since telling such a block from a list item's text needs the whole list; links in HTML blocks other than comments count; bare `https://` and `www.` addresses are no links; a link whose target holds a backtick that a later backtick closes is taken as code.
+Where the host still differs: links in a block indented four spaces count, since telling such a block from a list item's text needs the whole list; links in HTML blocks other than comments count; bare `https://` and `www.` addresses are no links; a link whose target holds a backtick that a later backtick closes is taken as code. A reading that runs past a time limit (5 seconds) stops, and links from the block where it stopped on are not found.
 
 A two-slash, device or automount target goes through the host's network and device checks before it is resolved: the host never folds `//server/share/x` into the local `/server/share/x`.
 

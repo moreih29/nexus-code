@@ -410,10 +410,17 @@ function linkTarget(link: WrittenLink): string {
   return linkDestination(link.written);
 }
 
+function firstOfEachTarget(links: readonly WrittenLink[]): WrittenLink[] {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    if (seen.has(link.written)) return false;
+    seen.add(link.written);
+    return true;
+  });
+}
+
 function writtenImagesIn(text: string): string[] {
-  return writtenLinksIn(text)
-    .filter((link) => link.image)
-    .map(linkTarget);
+  return firstOfEachTarget(writtenLinksIn(text).filter((link) => link.image)).map(linkTarget);
 }
 
 function looksLikePath(text: string): boolean {
@@ -507,7 +514,7 @@ export function resultsOf(
     const answer: FileLinkSource = { kind: "answer", itemKey: item.key };
     for (const block of item.blocks) {
       if (block.type !== "text") continue;
-      for (const link of writtenLinksIn(block.text)) {
+      for (const link of firstOfEachTarget(writtenLinksIn(block.text))) {
         const target = linkTarget(link);
         if (/^https?:\/\//.test(target)) add("url", target, answer);
         else if (looksLikePath(target))
@@ -662,7 +669,7 @@ export function imagesOf(
 
 function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
   const named: { at: number; path: string }[] = [];
-  for (const link of writtenLinksIn(text)) {
+  for (const link of firstOfEachTarget(writtenLinksIn(text))) {
     const target = linkTarget(link);
     if (!/^https?:\/\//.test(target) && looksLikePath(target)) {
       named.push({ at: link.at, path: target });

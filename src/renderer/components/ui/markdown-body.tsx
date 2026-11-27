@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useMemo } from "react";
+import { createElement, memo, type ReactNode, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components, type Options, type UrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -94,6 +94,18 @@ const WEB_ONLY: Components = {
   img: ({ alt }) => <ImageName alt={alt} />,
 };
 
+type Shown = Components["a"] | Components["img"];
+
+function withoutWrittenHref(tag: "a" | "img", shown: Shown) {
+  return function WithoutWrittenHref(props: object) {
+    const { "data-written-href": _written, ...rest } = props as Record<string, unknown>;
+    if (shown !== undefined && typeof shown !== "string")
+      return createElement(shown as never, rest);
+    const { node: _node, ...attributes } = rest;
+    return createElement(shown ?? tag, attributes);
+  };
+}
+
 export interface MarkdownBodyProps {
   source: string;
   components?: Components;
@@ -109,10 +121,14 @@ export const MarkdownBody = memo(function MarkdownBody({
   html = false,
   urlTransform,
 }: MarkdownBodyProps) {
-  const merged = useMemo<Components>(
-    () => ({ ...BASE, ...(links === "web-only" ? WEB_ONLY : {}), ...components }),
-    [components, links],
-  );
+  const merged = useMemo<Components>(() => {
+    const given: Components = { ...BASE, ...(links === "web-only" ? WEB_ONLY : {}), ...components };
+    return {
+      ...given,
+      a: withoutWrittenHref("a", given.a) as Components["a"],
+      img: withoutWrittenHref("img", given.img) as Components["img"],
+    };
+  }, [components, links]);
   return (
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
