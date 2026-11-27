@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ListenArg } from "@/ipc/types";
 
 export interface BrowserRuntimeState {
   currentUrl: string;
@@ -6,7 +7,7 @@ export interface BrowserRuntimeState {
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
-  loadFailure: { url: string; description: string } | null;
+  loadFailure: ListenArg<"browser", "loadFailureChanged">["failure"];
   snapshot: string | null;
   devtoolsOpen: boolean;
   faviconUrl: string | null;

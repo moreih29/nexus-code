@@ -2,6 +2,7 @@ import type { TabActivity } from "../../../../src/main/features/cli/activity";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type {
   BrowserDriver,
+  BrowserViewState,
   PageDialog,
   PageInfo,
   RequestDetails,
@@ -219,6 +220,7 @@ export interface FakeApp {
 
 export interface FakeBrowser {
   calls: Array<{ op: string; tabId: string; args: unknown[] }>;
+  views: Map<string, BrowserViewState>;
   console: ConsoleEntry[];
   value: unknown;
   met: boolean;
@@ -236,6 +238,7 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
   };
   const acted = (text: string) => ({ ...page, text, navigated: false });
   return {
+    viewState: (tabId) => state.views.get(tabId) ?? { visible: false, bounds: null },
     snapshot: async (tabId, options) => {
       record("snapshot", tabId, options);
       return { ...page, text: '- button "Sign in" [ref=e1]', omitted: 0 };
@@ -387,6 +390,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const transcripts: FakeApp["transcripts"] = {};
   const browser: FakeBrowser = {
     calls: [],
+    views: new Map(),
     console: [],
     value: undefined,
     met: true,

@@ -215,6 +215,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       entry && {
         contents: entry.view.webContents,
         view: entry.view,
+        host: entry.win,
         active: entry.active,
         loadFailure: entry.loadFailure,
       }

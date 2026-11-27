@@ -66,6 +66,10 @@ export async function resolveBrowser(
 const browserList: CliCommand = {
   path: ["browser", "list"],
   summary: "List a workspace's browser tabs",
+  details:
+    "In JSON, shown means selected in its tab group. visible means the native page view\n" +
+    "is attached and visible in its app window. bounds gives the native view rectangle\n" +
+    "(x, y, width, height) in window coordinates, or null if there is no view.",
   flags: { workspace: WORKSPACE_FLAG },
   async run(ctx, { flags }) {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
@@ -75,7 +79,13 @@ const browserList: CliCommand = {
       tabs.length
         ? table(["ID", "TITLE", "URL", ""], rows)
         : `${workspace.name} has no browser tab.`,
-      tabs.map((t) => ({ id: t.id, title: t.title, url: t.url, shown: t.shown })),
+      tabs.map((t) => ({
+        id: t.id,
+        title: t.title,
+        url: t.url,
+        shown: t.shown,
+        ...ctx.services.browser.viewState(t.id),
+      })),
     );
   },
 };

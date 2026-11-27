@@ -111,6 +111,7 @@ export function registerBrowserChannel(
           registry.create({ tabId, workspaceId, url, partition, win });
         } catch (error) {
           owners.delete(tabId);
+          if (registry.get(tabId)) registry.destroy({ tabId });
           return ipcErr("browser-create-failed", String(error), { category: "bug" });
         }
 
@@ -154,6 +155,7 @@ export function registerBrowserChannel(
         wc.on("did-stop-loading", () => {
           emit("loadingChanged", { isLoading: false });
         });
+        if (!entry.loadFailure && wc.isLoading()) emit("loadingChanged", { isLoading: true });
 
         wc.on("page-title-updated", (_event, title) => {
           emit("titleUpdated", { title });

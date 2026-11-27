@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type { BrowserWindow } from "electron";
+import type { BrowserWindow, Rectangle } from "electron";
 import {
   createIpcPair,
   mockGetAllWebContents,
@@ -20,6 +20,7 @@ class FakeWebContents extends EventEmitter {
   });
   readonly capturePage = mock(async () => image);
   readonly loadURL = mock(async (_url: string) => {});
+  readonly reload = mock(() => {});
   readonly navigationHistory = { canGoBack: () => false, canGoForward: () => false };
   private destroyed = false;
 
@@ -30,6 +31,12 @@ class FakeWebContents extends EventEmitter {
   closeDevTools(): void {}
   isLoading(): boolean {
     return true;
+  }
+  isLoadingMainFrame(): boolean {
+    return false;
+  }
+  getURL(): string {
+    return createArgs.url;
   }
   isDestroyed(): boolean {
     return this.destroyed;
@@ -42,9 +49,19 @@ class FakeWebContents extends EventEmitter {
 
 class FakeWebContentsView {
   readonly webContents = new FakeWebContents();
+  private bounds = { x: 0, y: 0, width: 0, height: 0 };
   visible = true;
   setVisible(visible: boolean): void {
     this.visible = visible;
+  }
+  getVisible(): boolean {
+    return this.visible;
+  }
+  setBounds(bounds: Rectangle): void {
+    this.bounds = bounds;
+  }
+  getBounds(): Rectangle {
+    return this.bounds;
   }
 }
 
@@ -90,12 +107,30 @@ describe("browser visibility IPC", () => {
       .map(({ args }) => args[2]);
   }
 
+  function browserDriver() {
+    return new CdpBrowserDriver((id) => {
+      const entry = registry.get(id);
+      return (
+        entry && {
+          contents: entry.view.webContents,
+          view: entry.view,
+          host: entry.win,
+          active: entry.active,
+          loadFailure: entry.loadFailure,
+        }
+      );
+    });
+  }
+
   beforeEach(async () => {
     resetInMemoryIpc();
     await setupInMemoryRouter();
     attached = new Set();
     registry = new BrowserTabRegistry();
     const contentView = {
+      get children() {
+        return [...attached];
+      },
       addChildView: (view: FakeWebContentsView) => attached.add(view),
       removeChildView: (view: FakeWebContentsView) => attached.delete(view),
     };
@@ -105,6 +140,9 @@ describe("browser visibility IPC", () => {
       (sender) =>
         ({
           contentView,
+          isDestroyed: () => false,
+          isVisible: () => true,
+          isMinimized: () => false,
           webContents: { id: sender.id, getZoomFactor: () => 1 },
         }) as unknown as BrowserWindow,
     );
@@ -142,6 +180,51 @@ describe("browser visibility IPC", () => {
       channel: "ipc:event",
       args: ["browser", "focused", { tabId, viewId: replacement }],
     });
+  });
+
+  test("closes a partially initialized view and allows a fresh create", async () => {
+    let failedContents: { isDestroyed(): boolean } | undefined;
+    const stopFailing = registry.onCreate((_tabId, contents) => {
+      failedContents = contents;
+      throw new Error("setup failed");
+    });
+    const failedViewId = crypto.randomUUID();
+    expect(await call("create", { ...createArgs, viewId: failedViewId })).toMatchObject({
+      ok: false,
+      kind: "browser-create-failed",
+    });
+    expect(failedContents?.isDestroyed()).toBe(true);
+    expect(registry.get(tabId)).toBeUndefined();
+
+    stopFailing();
+    const retryViewId = crypto.randomUUID();
+    expect(await call("create", { ...createArgs, viewId: retryViewId })).toMatchObject({
+      ok: true,
+    });
+    await call("destroy", { tabId, viewId: failedViewId });
+    await call("setActive", { tabId, viewId: retryViewId, active: true });
+    expect(attached.has(registry.get(tabId)?.view as unknown as FakeWebContentsView)).toBe(true);
+  });
+
+  test("reports native bounds independently of attachment and visibility", async () => {
+    const driver = browserDriver();
+    expect(driver.viewState("missing-tab")).toEqual({ visible: false, bounds: null });
+    expect(driver.viewState(tabId)).toEqual({
+      visible: false,
+      bounds: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    const bounds = { x: 92, y: 64, width: 800, height: 400 };
+    await call("setBounds", { tabId, viewId, ...bounds });
+    expect(driver.viewState(tabId)).toEqual({ visible: true, bounds });
+    attached.delete(page);
+    expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
+    attached.add(page);
+    await call("suspendAll", { captureSnapshot: false });
+    expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
+    await call("resumeAll", {});
+    expect(driver.viewState(tabId)).toEqual({ visible: true, bounds });
+    await setActive(false);
+    expect(driver.viewState(tabId)).toEqual({ visible: false, bounds });
   });
 
   test("restores a detached page and DevTools when they attach after resume", async () => {
@@ -228,7 +311,7 @@ describe("browser visibility IPC", () => {
     expect(page.visible).toBe(true);
 
     page.webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", url, true);
-    const failure = { url, description: "ERR_NAME_NOT_RESOLVED" };
+    const failure = { url, description: "ERR_NAME_NOT_RESOLVED", code: -105 };
     expect(registry.get(tabId)?.loadFailure).toEqual(failure);
     expect(pair.sender.sent).toContainEqual({
       channel: "ipc:event",
@@ -242,15 +325,7 @@ describe("browser visibility IPC", () => {
     await setActive(true);
     expect(page.visible).toBe(false);
 
-    const driver = new CdpBrowserDriver(() => {
-      const entry = registry.get(tabId)!;
-      return {
-        contents: entry.view.webContents,
-        view: entry.view,
-        active: true,
-        loadFailure: entry.loadFailure,
-      };
-    });
+    const driver = browserDriver();
     await expect(driver.snapshot(tabId, { maxLines: 10 })).rejects.toThrow(
       `Could not load ${url}: ERR_NAME_NOT_RESOLVED`,
     );
@@ -260,6 +335,80 @@ describe("browser visibility IPC", () => {
     await call("reload", { tabId });
     expect(page.webContents.loadURL).toHaveBeenLastCalledWith(url);
     expect(page.visible).toBe(false);
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+  });
+
+  test("a failed refresh retains the error through retry and clears it on an HTTP response", async () => {
+    const { url } = createArgs;
+    await call("reload", { tabId });
+    expect(page.webContents.reload).toHaveBeenCalledTimes(1);
+    page.webContents.emit("did-fail-load", {}, -102, "", url, true);
+    const failure = { url, description: "NET_ERROR_-102", code: -102 };
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(page.visible).toBe(false);
+
+    await call("reload", { tabId });
+    page.webContents.emit("did-start-loading");
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(pair.sender.sent.at(-1)?.args).toEqual([
+      "browser",
+      "loadingChanged",
+      { tabId, viewId, isLoading: true },
+    ]);
+    page.webContents.emit("did-navigate", {}, url, 404, "Not Found");
+    page.webContents.emit("did-stop-loading");
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+    expect(pair.sender.sent.at(-1)?.args).toEqual([
+      "browser",
+      "loadingChanged",
+      { tabId, viewId, isLoading: false },
+    ]);
+  });
+
+  test("uses a specific loadURL rejection when no failure event arrives", async () => {
+    const url = "https://example.com/fail";
+    page.webContents.loadURL.mockRejectedValueOnce(Object.assign(new Error(), { errno: -3 }));
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+
+    page.webContents.loadURL.mockRejectedValueOnce(
+      Object.assign(new Error(), { code: "ERR_FAILED", errno: -2 }),
+    );
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+
+    page.webContents.loadURL.mockRejectedValueOnce(
+      Object.assign(new Error(), { code: "ERR_CONNECTION_REFUSED", errno: -102 }),
+    );
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toEqual({
+      url,
+      description: "ERR_CONNECTION_REFUSED",
+      code: -102,
+    });
+    expect(page.visible).toBe(false);
+  });
+
+  test("shows renderer termination in the tab and CLI and allows reopening the page", async () => {
+    const { url } = createArgs;
+    page.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 1 });
+    const failure = { url, description: "ERR_RENDER_PROCESS_GONE" };
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(pair.sender.sent.at(-1)?.args).toEqual([
+      "browser",
+      "loadFailureChanged",
+      { tabId, viewId, failure },
+    ]);
+    expect(page.visible).toBe(false);
+    const driver = browserDriver();
+    await expect(driver.snapshot(tabId, { maxLines: 10 })).rejects.toThrow(
+      `Page stopped at ${url}`,
+    );
+    await call("reload", { tabId });
+    expect(page.webContents.loadURL).toHaveBeenLastCalledWith(url);
     page.webContents.emit("did-navigate", {}, url, 200, "OK");
     expect(registry.get(tabId)?.loadFailure).toBeNull();
     expect(page.visible).toBe(true);
@@ -280,6 +429,7 @@ describe("browser visibility IPC", () => {
     expect(registry.get(tabId)?.loadFailure).toEqual({
       url,
       description: "ERR_CONNECTION_REFUSED",
+      code: -102,
     });
     await call("reload", { tabId });
     expect(resolve).toHaveBeenLastCalledWith(createArgs.workspaceId, url);

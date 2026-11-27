@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -27,6 +28,77 @@ describe("resolveInitialBrowserUrl", () => {
       makeProps("javascript:void(0)", "https://fallback.example.com"),
     );
     expect(result).toBeNull();
+  });
+});
+
+describe("browser view creation", () => {
+  const args = {
+    tabId: crypto.randomUUID(),
+    workspaceId: crypto.randomUUID(),
+    url: "https://example.com",
+    partition: "persist:test",
+  };
+
+  it.each([
+    "error result",
+    "rejected transport",
+  ])("reports %s and can create a fresh view", async (failure) => {
+    const originalWindow = globalThis.window;
+    const calls: Array<{ method: string; viewId: string }> = [];
+    Object.assign(globalThis, {
+      window: {
+        ipc: {
+          call: async (_channel: string, method: string, { viewId }: { viewId: string }) => {
+            calls.push({ method, viewId });
+            if (calls.length !== 1) return ipcOk(undefined);
+            if (failure === "rejected transport") throw new Error("transport failed");
+            return ipcErr("browser-create-failed", "setup failed");
+          },
+        },
+      },
+    });
+    const first = Promise.withResolvers<string | null>();
+    const second = Promise.withResolvers<string | null>();
+    try {
+      const closeFirst = browserOperations.mountBrowserView(args, first.resolve);
+      expect(await first.promise).toBeNull();
+      closeFirst();
+      const closeSecond = browserOperations.mountBrowserView(args, second.resolve);
+      const viewId = await second.promise;
+      expect(viewId).toBeString();
+      expect(viewId).not.toBe(calls[0]?.viewId);
+      expect(calls).toEqual([
+        { method: "create", viewId: expect.any(String) },
+        { method: "destroy", viewId: calls[0]?.viewId },
+        { method: "create", viewId },
+      ]);
+      closeSecond();
+    } finally {
+      Object.assign(globalThis, { window: originalWindow });
+    }
+  });
+
+  it("ignores a create result after its view was replaced", async () => {
+    const originalWindow = globalThis.window;
+    const pending = Promise.withResolvers<ReturnType<typeof ipcOk>>();
+    const created: Array<string | null> = [];
+    let calls = 0;
+    Object.assign(globalThis, {
+      window: { ipc: { call: async () => (++calls === 1 ? pending.promise : ipcOk(undefined)) } },
+    });
+    try {
+      const closeFirst = browserOperations.mountBrowserView(args, (id) => created.push(id));
+      closeFirst();
+      const second = Promise.withResolvers<string | null>();
+      const closeSecond = browserOperations.mountBrowserView(args, second.resolve);
+      expect(await second.promise).toBeString();
+      pending.resolve(ipcOk(undefined));
+      await Bun.sleep(0);
+      expect(created).toEqual([]);
+      closeSecond();
+    } finally {
+      Object.assign(globalThis, { window: originalWindow });
+    }
   });
 });
 
