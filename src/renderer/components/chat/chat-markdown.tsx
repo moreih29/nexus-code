@@ -1,7 +1,6 @@
 import i18next from "i18next";
 import { memo, useCallback, useMemo } from "react";
 import { type Components, defaultUrlTransform } from "react-markdown";
-import { writtenHrefAt } from "../../../shared/chat/link-text";
 import { isNetworkLink } from "../../../shared/fs/outside-url";
 import {
   type FileLinkSource,
@@ -20,6 +19,7 @@ import {
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
+import { writtenHrefOf } from "../../utils/remark-plugins";
 import { ImageName, MarkdownBody } from "../ui/markdown-body";
 import { showToast } from "../ui/toast";
 import { LinkMenu, useChatLinks, useLinkPlaces } from "./chat-links";
@@ -85,7 +85,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     () => ({
       a({ href, children, ...rest }) {
         const safe = typeof href === "string" ? href : "";
-        const sent = writtenHrefAt(text, rest.node?.position) ?? safe;
+        const sent = writtenHrefOf(rest.node) ?? safe;
         const link = (icon?: React.ReactNode) => (
           <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, sent, e)}>
             {icon}
@@ -141,7 +141,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           if (fileKind(path) !== "image") return label;
           return (
             <HostImage
-              href={writtenHrefAt(text, node?.position) ?? src}
+              href={writtenHrefOf(node) ?? src}
               source={hostSource}
               path={path}
               workspaceId={workspaceId}
@@ -176,7 +176,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         );
       },
     }),
-    [onLink, placesOf, cwd, workspaceId, rootPath, shownEarlier, hostSource, viaHost, text],
+    [onLink, placesOf, cwd, workspaceId, rootPath, shownEarlier, hostSource, viaHost],
   );
 
   return (

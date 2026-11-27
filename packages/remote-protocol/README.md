@@ -115,20 +115,27 @@ Source kinds. Each carries an optional `runId`, for a `claude -p` or `codex exec
 | `taskEnd` | `itemKey` | that task_end item's summary |
 | `streaming` | `messageId` | the reply being written, or once it ended, every assistant item with that `messageId`; gone after a rewind |
 | `tool` | `toolUseId` | that tool call's file path, notebook path or SendUserFile paths, or the links of its result |
-| `user` | `itemKey` | that user item's attachments |
+| `user` | `itemKey` | that user item's attachments. An `@path` the item ends with counts when it is inside the workspace's folder, even with no attach slot copy (`readable: true`; `files.grant` answers `{ path }` with no token). Outside the folder only the attach slot copy counts |
 | `job` | `taskId` | that background job's output file |
 | `change` | – | the chat's (or run's) changed files |
 | `file` | `parent`, `grant?` | the parent file's text, its first `MAX_FILE_SOURCE_PARENT_BYTES` (5 MiB); `grant` is the parent's token when it needed one. Links inside PDFs and Office documents are not taken |
 
 The host compares links after it cleans both sides the same way:
 
-1. Undo CommonMark backslash escapes, except in a Windows path: a target that, without `<...>`, starts with a drive (`C:\`, `C:/`) or with two slashes of either kind (`\\`, `//`, `\/`, `/\`). There every `\` stays as written, so `C:\Users\me\.claude\a.png` keeps `\.claude`.
+1. Undo CommonMark backslash escapes, except in a Windows path target: one that, as written (before entities are decoded) and without `<...>`, starts with a drive (`C:\`, `C:/`) or with two slashes of either kind (`\\`, `//`, `\/`, `/\`). There every `\` stays, so `C:\Users\me\.claude\a.png` keeps `\.claude`.
 2. Take off `<...>`.
 3. Decode HTML entities.
 4. Percent-decode.
 5. Turn `\` into `/`.
+6. Take off a line tail (`#L12`, `#L12-L20`, `:12`, `:12:3`).
 
-Then they must match exactly. A reader shows and sends a Windows path link as written too: `href` is the target from the text with only `<...>` and a line tail (`:12`, `#L12`) taken off, not the target its Markdown parser gave. A two-slash target stays a UNC or device path, so it is still blocked. Links are inline link and image targets, autolinks, reference definitions, backtick paths of files a tool call touched, and in an `.html` parent, `href` and `src` values.
+Then they must match exactly.
+
+A reader sends every inline or reference link and image as written: `href` is the target from the text (for a reference, from the definition it uses) with only `<...>` and a line tail taken off, not the target a Markdown parser gives. It shows a Windows path target as step 1 reads it.
+
+Links are inline link and image targets, read as CommonMark reads them (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through the definition they use, autolinks, and backtick paths of files a tool call touched. Apart from those backtick paths, nothing inside a code span or a fenced code block is a link. In an `.html` parent, `href` and `src` values count too.
+
+A two-slash, device or automount target goes through the host's network and device checks before it is resolved: the host never folds `//server/share/x` into the local `/server/share/x`.
 
 **`files.resolve`** takes `{ workspaceId, tabId, links }`, with 1 to `MAX_FILE_RESOLVE_LINKS` (64) entries of `{ href, source }`. It answers `{ found }` in the same order, one entry per link:
 
@@ -138,6 +145,8 @@ Then they must match exactly. A reader shows and sends a Windows path link as wr
 | `{ path, readable: false }` | The file is there; it needs a grant | An icon card; a tap asks for a grant |
 | `{ blocked: true }` | An automount, UNC or device path. Decided by the path's shape alone, without touching it, or a symbolic link found to point at one | An icon card; a tap asks for a grant |
 | `null` | Not there, or not in that source | No card; the link in the text stays |
+
+`readable: false` does not only mean outside the standing set. In a local workspace, a link through a symbolic link inside the workspace's folder that points outside it also answers `readable: false`, and `files.grant` for it is Forbidden with no `data` and gives no token.
 
 If the call fails, the reader shows that it could not load. The host only stats files: it neither opens nor reads them, and tells no size or version. An entry a reader cannot parse becomes `null` (`FileResolvedSchema`). A reader checks an absolute path inside the workspace's folder itself (`files.list`, `files.read`), without `files.resolve`.
 

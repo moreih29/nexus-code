@@ -7,6 +7,8 @@ import type { FsProvider } from "../../../../../src/main/features/fs/bridge/prov
 import { FileGrants } from "../../../../../src/main/features/remote/file-grants";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
 import { sourcesChanged } from "../../../../../src/main/features/remote/serving/file-links";
+import { cleanLinkHref } from "../../../../../src/shared/chat/link-text";
+import { networkLinkPath } from "../../../../../src/shared/fs/outside-url";
 import { fakeApp } from "../../cli/fake-services";
 
 const NETWORK_LINK =
@@ -348,6 +350,90 @@ describe("files.grant and a read with its token", () => {
       code: RpcErrorCode.Forbidden,
       data: { grant: "invalid" },
     });
+  });
+});
+
+describe("a network link the host could fold into a local path", () => {
+  const local = path.join(outside, "a.txt");
+  const slashed = local.split(path.sep).join("/").replace(/^\//, "");
+  const forms = [
+    "//qa-host/share/a.txt",
+    String.raw`\\qa-host\share\a.txt`,
+    String.raw`\/qa-host/share/a.txt`,
+    String.raw`/\qa-host\share\a.txt`,
+    `//?/${slashed}`,
+    `//./${slashed}`,
+    `//${slashed}`,
+    `\\\\?\\${slashed.replace(/\//g, "\\")}`,
+  ];
+  const network = path.join(outside, "net.md");
+  fs.writeFileSync(network, forms.map((form) => `[x](${form})`).join("\n"));
+
+  const sources = async (ask: ReturnType<typeof serving>["ask"]) => {
+    const parent = (await ask("files.grant", {
+      tabId: "c1",
+      href: network,
+      source: answer,
+      purpose: "open",
+    })) as { grant: string };
+    return [answer, { kind: "file", parent: network, grant: parent.grant }];
+  };
+
+  test.each(
+    forms,
+  )("%s is blocked from a chat and from a file, though the folded file exists", async (form) => {
+    expect(fs.existsSync(local)).toBe(true);
+    const { ask } = serving({
+      standing: [],
+      candidates: (links) =>
+        links.map((l) => [networkLinkPath(cleanLinkHref(l.href)) ?? cleanLinkHref(l.href)]),
+    });
+    for (const source of await sources(ask)) {
+      expect(await ask("files.resolve", { tabId: "c1", links: [{ href: form, source }] })).toEqual({
+        found: [{ blocked: true }],
+      });
+      await expect(
+        ask("files.grant", { tabId: "c1", href: form, source, purpose: "open" }),
+      ).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        message: "that file is on a network or device path not opened from another device",
+      });
+    }
+  });
+});
+
+describe("a Windows path link written with backslashes", () => {
+  test("is found under a dot folder as written, from a chat and from a file", async () => {
+    const dotted = path.join(outside, ".cfg");
+    fs.mkdirSync(dotted, { recursive: true });
+    const target = path.join(dotted, "c.txt");
+    fs.writeFileSync(target, "dotted c");
+    const written =
+      process.platform === "win32" ? target : target.replace(`${path.sep}.cfg`, "/\\.cfg");
+    const doc = path.join(outside, "dotted.md");
+    fs.writeFileSync(doc, `See [c](${written}).`);
+    const { ask } = serving({ standing: [] });
+    const parent = (await ask("files.grant", {
+      tabId: "c1",
+      href: doc,
+      source: answer,
+      purpose: "open",
+    })) as { grant: string };
+    for (const source of [answer, { kind: "file", parent: doc, grant: parent.grant }]) {
+      const href = source.kind === "file" ? written : target;
+      expect(await ask("files.resolve", { tabId: "c1", links: [{ href, source }] })).toEqual({
+        found: [{ path: target, readable: false }],
+      });
+      const granted = (await ask("files.grant", {
+        tabId: "c1",
+        href,
+        source,
+        purpose: "open",
+      })) as { path: string; grant: string };
+      expect(await ask("files.read", { path: granted.path, grant: granted.grant })).toMatchObject({
+        text: "dotted c",
+      });
+    }
   });
 });
 

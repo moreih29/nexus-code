@@ -58,6 +58,12 @@ function decodedLink(target: string): string {
   }
 }
 
+export function networkLinkPath(target: string): string | null {
+  if (!isNetworkLink(target)) return null;
+  const link = decodedLink(target.trim()).trim();
+  return /^file:/i.test(link) ? link.slice("file:".length).replace(/\\/g, "/") : link;
+}
+
 export function isNetworkLink(target: string): boolean {
   const link = decodedLink(target.trim()).trim();
   if (!/^file:/i.test(link)) return isNetworkOrDevicePath(link);

@@ -1,5 +1,6 @@
 import type { FileLinkSource } from "../../../../packages/remote-protocol/src";
 import { cleanLinkHref, sameLinkHref, textLinksTo } from "../../../shared/chat/link-text";
+import { networkLinkPath } from "../../../shared/fs/outside-url";
 import { ipcCallResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -139,6 +140,8 @@ function hasStream(model: ChatModel, items: ChatItem[], messageId: string): bool
 
 function placesFor(href: string, base: string, tools?: Record<string, ToolCall>): string[] {
   const cleaned = cleanLinkHref(href);
+  const network = networkLinkPath(cleaned);
+  if (network !== null) return [network];
   const found = tools
     ? linkPlaces(cleaned, linkPlaceIndex(tools, base)).map((place) => place.path)
     : [resolveFileLink(cleaned, base)?.path].filter((path): path is string => !!path);
@@ -215,6 +218,7 @@ export function linkCandidates(
     case "user": {
       const item = itemOf(conversation, from.itemKey);
       if (item?.kind !== "user") return null;
+      if (networkLinkPath(cleanLinkHref(href)) !== null) return null;
       const path = resolveFilePath(cleanLinkHref(href), cwd);
       if (!path || !attachedFilesOf(item, cwd).includes(path)) return null;
       return allowsAttachment(path) ? [path] : null;

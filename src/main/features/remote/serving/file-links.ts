@@ -8,7 +8,7 @@ import {
   type RpcResult,
 } from "../../../../../packages/remote-protocol/src";
 import { cleanLinkHref, isHtmlFile, textLinksTo } from "../../../../shared/chat/link-text";
-import { isAutoMountPath, isDevicePath } from "../../../../shared/fs/outside-url";
+import { isAutoMountPath, isDevicePath, networkLinkPath } from "../../../../shared/fs/outside-url";
 import { createLogger } from "../../../../shared/log/main";
 import { shortId } from "../../../../shared/util/short-id";
 import type { CliServices } from "../../cli/context";
@@ -83,6 +83,7 @@ function inStanding(ctx: LinkContext, p: string): boolean {
 async function lookAt(ctx: LinkContext, candidate: string, mode: Mode): Promise<Look> {
   if (candidate.includes("\0")) return { kind: "skip" };
   const p = hostFilePath(ctx.rootPath, candidate);
+  if (namesNetworkPath(candidate) && !namesNetworkPath(p)) return { kind: "blocked" };
   if (!isAbsoluteFor(ctx.rootPath, p)) return { kind: "skip" };
   try {
     const place = await placeOrRealRoot(ctx.files, ctx.workspaceId, ctx.rootPath, ctx.folders, p);
@@ -101,7 +102,6 @@ async function lookAt(ctx: LinkContext, candidate: string, mode: Mode): Promise<
       return { kind: "blocked" };
     }
   }
-  if (namesNetworkPath(candidate) && !namesNetworkPath(p)) return { kind: "blocked" };
   if (namesNetworkPath(p)) {
     const onRootShare =
       !isAutoMountPath(p) &&
@@ -152,6 +152,8 @@ async function found(ctx: LinkContext, look: Look): Promise<Found> {
 
 function linkPathFrom(root: string, parent: string, href: string): string | null {
   let cleaned = cleanLinkHref(href);
+  const network = networkLinkPath(cleaned);
+  if (network !== null) return network;
   if (cleaned.startsWith("file://")) {
     try {
       cleaned = decodeURIComponent(new URL(cleaned).pathname);

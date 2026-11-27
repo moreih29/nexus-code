@@ -1,4 +1,9 @@
-import { linkDestination, linkHrefOf } from "../../../shared/chat/link-text";
+import {
+  linkDestination,
+  linkHrefOf,
+  type WrittenLink,
+  writtenLinksIn,
+} from "../../../shared/chat/link-text";
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { isAutoMountPath, isNetworkLink } from "../../../shared/fs/outside-url";
@@ -391,8 +396,6 @@ export function resultSource(result: ResultEntry): FileLinkSource | undefined {
 }
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
-const LINK_RE = /\]\((<[^>\n]+>|[^)\s]+)\)/g;
-const IMAGE_RE = /!\[[^\]]*\]\((<[^>\n]+>|[^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
 const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
@@ -403,8 +406,14 @@ export function resultHref(result: ResultEntry): string {
   return resultHrefs.get(result) ?? result.target;
 }
 
-function linkTarget(match: RegExpMatchArray): string {
-  return linkDestination(match[1]);
+function linkTarget(link: WrittenLink): string {
+  return linkDestination(link.written);
+}
+
+function writtenImagesIn(text: string): string[] {
+  return writtenLinksIn(text)
+    .filter((link) => link.image)
+    .map(linkTarget);
 }
 
 function looksLikePath(text: string): boolean {
@@ -498,10 +507,11 @@ export function resultsOf(
     const answer: FileLinkSource = { kind: "answer", itemKey: item.key };
     for (const block of item.blocks) {
       if (block.type !== "text") continue;
-      for (const match of block.text.matchAll(LINK_RE)) {
-        const target = linkTarget(match);
+      for (const link of writtenLinksIn(block.text)) {
+        const target = linkTarget(link);
         if (/^https?:\/\//.test(target)) add("url", target, answer);
-        else if (looksLikePath(target)) add("file", target, answer, false, linkHrefOf(match[1]));
+        else if (looksLikePath(target))
+          add("file", target, answer, false, linkHrefOf(link.written));
       }
       for (const match of block.text.matchAll(URL_RE)) add("url", match[0], answer);
       for (const match of block.text.matchAll(CODE_RE)) {
@@ -652,10 +662,10 @@ export function imagesOf(
 
 function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
   const named: { at: number; path: string }[] = [];
-  for (const match of text.matchAll(LINK_RE)) {
-    const target = linkTarget(match);
+  for (const link of writtenLinksIn(text)) {
+    const target = linkTarget(link);
     if (!/^https?:\/\//.test(target) && looksLikePath(target)) {
-      named.push({ at: match.index, path: target });
+      named.push({ at: link.at, path: target });
     }
   }
   for (const match of text.matchAll(CODE_RE)) {
@@ -671,7 +681,7 @@ function placedImages(
   cwd: string,
 ): string[] {
   let named: string[] = [];
-  if (block.type === "text") named = [...block.text.matchAll(IMAGE_RE)].map(linkTarget);
+  if (block.type === "text") named = writtenImagesIn(block.text);
   else if (block.type === "tool" && tools[block.toolUseId]?.status === "done") {
     named = sentFilesOf(tools[block.toolUseId]);
   }
@@ -758,7 +768,7 @@ export function answerExtras(
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
         if (block.type === "text") {
-          for (const match of block.text.matchAll(IMAGE_RE)) showHere(linkTarget(match));
+          for (const target of writtenImagesIn(block.text)) showHere(target);
         }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
         if (!tool) continue;
