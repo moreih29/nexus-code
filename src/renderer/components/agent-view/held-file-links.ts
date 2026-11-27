@@ -1,3 +1,5 @@
+import { cleanLinkHref, linkDestination } from "../../../shared/chat/link-text";
+import { isNetworkLink } from "../../../shared/fs/outside-url";
 import { type RemoteFileRef, remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import type { ChatFiles } from "../../services/chat/chat-files";
@@ -40,8 +42,12 @@ export function heldFileLinks(file: RemoteFileRef, held: HeldFile, files: ChatFi
         place(target);
         return;
       }
-      const at = resolveFileLink(link.href, folder) ?? undefined;
-      const inside = pathInRoot(link.href, folder, held.workspaceRoot);
+      const cleaned = cleanLinkHref(link.href);
+      const network = isNetworkLink(cleaned) || isNetworkLink(target);
+      const at = network ? undefined : (resolveFileLink(target, folder) ?? undefined);
+      const inside = network
+        ? null
+        : pathInRoot(linkDestination(link.href), folder, held.workspaceRoot);
       if (inside !== null) {
         place(inside, at);
         return;

@@ -122,3 +122,93 @@ test("an opened Markdown file from a grants host reads an image out of the works
   expect(md(grants)).toContain("peer-file-image-pending");
   expect(md(chatFiles())).not.toContain("peer-file-image-pending");
 });
+
+test.each([
+  [
+    '<img src="/outside/shot.png" data-written-href="/forged.png" alt="shot">',
+    "/outside/shot.png",
+    "/outside/shot.png",
+  ],
+  [
+    "[shot]: </outside/shot\\(1\\).png>\n\n![shot][shot]",
+    "/outside/shot(1).png",
+    "/outside/shot\\(1\\).png",
+  ],
+  ["![shot](<D:\\qa\\.shot.png>)", "D:/qa/.shot.png", "D:\\qa\\.shot.png"],
+  ["![shot](<\\\\repo\\qa\\.shot.png>)", "\\\\repo\\qa\\.shot.png", "\\\\repo\\qa\\.shot.png"],
+])("a held Markdown image keeps the written grant target for %s", async (source, path, href) => {
+  const pictures: string[] = [];
+  const files = chatFiles({
+    resolve: async () => [],
+    open: async () => path,
+    picture: async (path) => {
+      pictures.push(path);
+      throw new LinkGrantError("a grant is required", "grant-required");
+    },
+  });
+  const asked: unknown[] = [];
+  const links: ChatLinks = {
+    openFile: (target, options) => asked.push([target, options]),
+    openImages: () => {},
+    openChange: () => {},
+    openUrl: () => {},
+  };
+  await withTestDom(async (host, root) => {
+    await act(async () =>
+      root.render(
+        <ChatFilesContext.Provider value={files}>
+          <ChatLinksContext.Provider value={links}>
+            <MarkdownPreview
+              source={source}
+              workspaceId={peerWorkspaceId("d1", "w1")}
+              currentFileAbsPath="/repo/docs/a.md"
+              workspaceRootAbsPath="/repo"
+            />
+          </ChatLinksContext.Provider>
+        </ChatFilesContext.Provider>,
+      ),
+    );
+    const tile = host.querySelector<HTMLButtonElement>('[data-testid="chat-image-chip"]');
+    expect(tile).toBeTruthy();
+    expect(host.innerHTML).not.toContain("data-written-href");
+    await act(async () => tile?.click());
+  });
+  expect(pictures).toEqual([path]);
+  expect(asked).toEqual([
+    [path, { link: { href, source: { kind: "file", parent: "/repo/docs/a.md" } } }],
+  ]);
+});
+
+test("a held Markdown link sends the written drive path without its line tail", async () => {
+  const files = chatFiles({ resolve: async () => [], open: async () => "/never" });
+  const asked: unknown[] = [];
+  const links: ChatLinks = {
+    openFile: (target, options) => asked.push([target, options]),
+    openImages: () => {},
+    openChange: () => {},
+    openUrl: () => {},
+  };
+  await withTestDom(async (host, root) => {
+    await act(async () =>
+      root.render(
+        <ChatFilesContext.Provider value={files}>
+          <ChatLinksContext.Provider value={links}>
+            <MarkdownPreview
+              source={"[report](<D:\\qa\\.report.md:7>)"}
+              workspaceId={peerWorkspaceId("d1", "w1")}
+              currentFileAbsPath="/repo/docs/a.md"
+              workspaceRootAbsPath="/repo"
+            />
+          </ChatLinksContext.Provider>
+        </ChatFilesContext.Provider>,
+      ),
+    );
+    await act(async () => host.querySelector("a")?.click());
+  });
+  expect(asked).toEqual([
+    [
+      "D:%5Cqa%5C.report.md:7",
+      { link: { href: "D:\\qa\\.report.md", source: { kind: "file", parent: "/repo/docs/a.md" } } },
+    ],
+  ]);
+});

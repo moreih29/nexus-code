@@ -78,6 +78,7 @@ function eachNode(node: MarkdownNode, visit: (node: MarkdownNode) => void): void
 }
 
 function carriedHref(written: string): string | null {
+  if (isWindowsPathTarget(written)) return linkHrefOf(written);
   const target = commonMarkDestination(written);
   if (/^[A-Za-z][A-Za-z0-9+.-]+:/.test(target) && !/^file:\/\//i.test(target)) return null;
   return linkHrefOf(written);

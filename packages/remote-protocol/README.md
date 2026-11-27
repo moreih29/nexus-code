@@ -131,7 +131,7 @@ The host compares links after it cleans both sides the same way:
 
 Then they must match exactly.
 
-A chat view sends every inline or reference link and image as written: `href` is the target from the text (for a reference, from the definition it uses) with only `<...>` and a line tail taken off, not the target a Markdown parser gives. It shows a Windows path target as step 1 reads it.
+When a chat view or a held Markdown preview asks the host about an inline or reference file link or image, it sends the target as written. The `href` comes from the text, or from the definition used by a reference, with only `<...>` and a line tail taken off. Windows path targets are interpreted as in step 1.
 
 Links are inline link and image targets (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through a definition that starts a paragraph or a list item and has nothing after its target but an optional title, autolinks, and backtick paths of files a tool call touched. In an `.html` parent, `href` and `src` values count too. Apart from those backtick paths, nothing inside code or an HTML comment is a link. The host finds them as CommonMark and GFM do in these respects:
 
@@ -149,7 +149,7 @@ A two-slash, device or automount target goes through the host's network and devi
 | Entry | Meaning | A reader shows |
 | --- | --- | --- |
 | `{ path, readable: true }` | The file is there and may be read with no grant | A card and its thumbnail |
-| `{ path, readable: false }` | The file is there; it needs a grant | An icon card; a tap asks for a grant |
+| `{ path, readable: false }` | The path cannot be read under standing access | An icon card; a tap asks for a grant |
 | `{ blocked: true }` | An automount, UNC or device path. Decided by the path's shape alone, without touching it, or a symbolic link found to point at one | An icon card; a tap asks for a grant |
 | `null` | Not there, or not in that source | No card; the link in the text stays |
 

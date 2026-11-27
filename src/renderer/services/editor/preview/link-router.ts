@@ -1,4 +1,5 @@
 import { isWithinWorkspace, relativeTo } from "@/utils/path";
+import { networkLinkPath } from "../../../../shared/fs/outside-url";
 import { reducePosixSegments } from "../../../../shared/fs/posix-segments";
 import { isExternalSchemeAllowed } from "../../../../shared/security/url-scheme";
 
@@ -46,7 +47,9 @@ export function classifyLinkHref(href: string, ctx: LinkClassifyContext): Classi
 }
 
 export function linkTargetPath(href: string, currentFileAbsPath: string): string | null {
-  const drive = /^[A-Za-z]:[\\/]/.test(href);
+  const network = networkLinkPath(href);
+  if (network !== null) return network;
+  const drive = /^[A-Za-z]:(?:[\\/]|%5C)/i.test(href);
   if (!href || href.startsWith("#") || (!drive && hasUrlScheme(href))) return null;
   const filePath = decodeHrefPath(href.replace(/[?#].*$/, "")).replace(/\\/g, "/");
   if (!filePath) return null;

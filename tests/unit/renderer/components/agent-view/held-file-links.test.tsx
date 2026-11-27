@@ -92,6 +92,23 @@ test("an absolute link inside the workspace opens with no grant", () => {
   expect(placed[0]?.key).toContain(encodeURIComponent("/repo/a.md"));
 });
 
+test.each([
+  "//repo/a.md",
+  "\\\\repo\\a.md",
+  "//?/repo/a.md",
+])("a held file sends the network or device path %s to the grant host", async (href) => {
+  const files = chatFiles({
+    open: async () => {
+      throw new LinkGrantError("network path refused", "forbidden");
+    },
+  });
+  const link = { href, source: parent };
+  heldFileLinks(file, held, files).openFile(href, { link });
+  await settle();
+  expect(files.opened).toEqual([link]);
+  expect(placed).toEqual([]);
+});
+
 test("a refused grant opens nothing and says why", async () => {
   const files = chatFiles({
     open: async () => {
