@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { RUN_ITEMS_SCHEMA } from "../../../../../packages/remote-protocol/src";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
 const { chatProfileIdThere, peerSpeaks, TERMINAL_PROFILE_SCHEMA } = await import(
@@ -15,6 +16,12 @@ const peer = (schema?: string): RoomPeer => ({
 });
 
 describe("a peer's protocol version", () => {
+  test("run output and image requests require the 0.30.0 hello schema", () => {
+    expect(peerSpeaks(peer("0.30.0"), RUN_ITEMS_SCHEMA)).toBe(true);
+    expect(peerSpeaks(peer("0.29.0"), RUN_ITEMS_SCHEMA)).toBe(false);
+    expect(peerSpeaks(peer(), RUN_ITEMS_SCHEMA)).toBe(false);
+  });
+
   test("from 0.13.1 on, its terminals open in a chat's profile", () => {
     expect(TERMINAL_PROFILE_SCHEMA).toBe("0.13.1");
     expect(peerSpeaks(peer("0.13.1"), TERMINAL_PROFILE_SCHEMA)).toBe(true);

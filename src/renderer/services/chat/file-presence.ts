@@ -8,6 +8,7 @@ import {
   isNetworkOrDevicePath,
 } from "../../../shared/fs/outside-url";
 import { isUnder } from "../../../shared/fs/relative-path";
+import { lastImageVersion, localImageVersionKey } from "../editor/preview/image-version-cache";
 import { useChatFiles } from "./chat-files";
 
 const FRESH_MS = 30_000;
@@ -32,14 +33,28 @@ export function lookupPath(path: string, root: string): string | null {
   return path.length > base.length ? path.slice(base.length + 1) : null;
 }
 
+function outsidePathToLookUp(path: string, root: string): string | null {
+  if (isNetworkOrDevicePath(path)) return null;
+  if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
+  if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
+  return path;
+}
+
 export function pathToLookUp(path: string, root: string): string | null {
   if (isDevicePath(path)) return null;
   const relPath = lookupPath(path, root);
   if (relPath !== null) return relPath;
-  if (isNetworkOrDevicePath(path)) return null;
-  if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
-  if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
-  return isAutoMountPath(path) ? null : path;
+  const outside = outsidePathToLookUp(path, root);
+  return outside !== null && !isAutoMountPath(outside) ? outside : null;
+}
+
+export function isUnknownFile(path: string, root: string): boolean {
+  return (
+    !isDevicePath(path) &&
+    lookupPath(path, root) === null &&
+    outsidePathToLookUp(path, root) !== null &&
+    isAutoMountPath(path)
+  );
 }
 
 export function createFilePresence(
@@ -134,7 +149,14 @@ export function useFoundFiles(
   const scope = files ? (files.access?.scope ?? null) : undefined;
   const [found, setFound] = useState<{ scope: typeof scope; paths: ReadonlySet<string> }>(() => ({
     scope,
-    paths: files ? EMPTY_PATHS : new Set(paths.filter((path) => presence.known(workspaceId, path))),
+    paths: new Set(
+      paths.filter((path) => {
+        if (files) return files.knownPicture?.(path);
+        if (presence.known(workspaceId, path)) return true;
+        const relPath = pathToLookUp(path, root);
+        return relPath !== null && lastImageVersion(localImageVersionKey(workspaceId, relPath));
+      }),
+    ),
   }));
   if (found.scope !== scope) setFound({ scope, paths: EMPTY_PATHS });
   // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` only says when to look again

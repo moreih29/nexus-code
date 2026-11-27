@@ -4,6 +4,7 @@ import type { AgentGate } from "../agent-gate";
 import type { Attachments } from "../attachments";
 import type { ChatWatches } from "../chat-watches";
 import type { ConsentControls } from "../consents";
+import type { FileGrants } from "../file-grants";
 import type { FileWrites } from "../file-writes";
 import type { RemoteFiles } from "../files";
 import type { FolderSystem } from "../folders";
@@ -30,6 +31,8 @@ export interface RemoteServeOptions {
   deviceName?: (id: string) => string | undefined;
   folders?: FolderSystem;
   controls?: () => ConsentControls;
+  fileGrants?: FileGrants;
+  legacyOutsideFiles?: () => boolean;
 }
 
 export interface RemoteServeRequest {
@@ -40,6 +43,8 @@ export interface RemoteServeRequest {
   isCurrent?: () => boolean;
   signal?: AbortSignal;
   waits?: boolean;
+  epoch?: string;
+  grants?: boolean;
 }
 
 import type { WorkspaceGit } from "./sessions";

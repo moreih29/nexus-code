@@ -35,9 +35,9 @@ let tick: (() => void) | null = null;
 let cleared = 0;
 const stops: (() => void)[] = [];
 
-const watch = (path: string, mode?: "text" | "version") => {
+const watch = (path: string, mode?: "text" | "version" | "image", connection?: number) => {
   let notified = 0;
-  const stop = live.watchPeerFile(WS, path, () => notified++, mode);
+  const stop = live.watchPeerFile(WS, path, () => notified++, mode, connection);
   stops.push(stop);
   return { stop, count: () => notified };
 };
@@ -146,7 +146,7 @@ afterEach(() => {
 });
 
 describe("a file of another computer's, kept current", () => {
-  test("a preview image follows the file version with and without the chat's epoch", async () => {
+  test("a preview image URL follows the file version across polls and chat access epochs", async () => {
     const path = "/w/image.png";
     const url = "nexus-workspace://peer/d1/w1/w/image.png";
     function PreviewImage() {
@@ -168,17 +168,30 @@ describe("a file of another computer's, kept current", () => {
       );
     }
 
-    watch(path, "version");
+    const plain = watch(path, "image");
+    const chat = watch(path, "image", 1);
     await settle();
-    expect(render()).toContain(`src="${url}"`);
-    expect(render(3)).toContain(`src="${url}?v=0&amp;epoch=3"`);
-    expect(render(4)).toContain(`src="${url}?v=0&amp;epoch=4"`);
+    expect(render()).toContain(`src="${url}?v=v1"`);
+    expect(render(3)).toContain(`src="${url}?v=v1"`);
+    expect(render(4)).toContain(`src="${url}?v=v1"`);
+
+    tick?.();
+    await settle();
+    expect(chat.count()).toBe(1);
 
     version = "v2";
     tick?.();
     await settle();
-    expect(render(4)).toContain(`src="${url}?v=1&amp;epoch=4"`);
-    expect(render()).toContain(`src="${url}?v=1"`);
+    expect(render(4)).toContain(`src="${url}?v=v2"`);
+    expect(render()).toContain(`src="${url}?v=v2"`);
+
+    chat.stop();
+    plain.stop();
+    expect(render(5)).toContain(`src="${url}?v=v2"`);
+    expect(render()).toContain(`src="${url}?v=v2"`);
+    watch(path, "image", 1);
+    await settle();
+    expect(render(5)).toContain(`src="${url}?v=v2"`);
   });
 
   test("reads once with a version, and a re-read that finds it unchanged keeps what is shown", async () => {

@@ -1,17 +1,18 @@
-import { memo, type ReactNode, useMemo } from "react";
+import { createElement, memo, type ReactNode, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components, type Options, type UrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
-import { REMARK_PLUGINS } from "../../utils/remark-plugins";
+import { isWindowsPathTarget } from "../../../shared/chat/link-text";
+import { REMARK_PLUGINS, writtenHrefOf } from "../../utils/remark-plugins";
 import { CopyButton } from "./copy-button";
 
 export type MarkdownNode = {
   tagName?: string;
   value?: string;
-  position?: { start?: { line?: number } };
+  position?: { start?: { line?: number; offset?: number } };
   properties?: Record<string, unknown>;
   children?: unknown[];
 };
@@ -21,6 +22,55 @@ type RehypePlugins = NonNullable<Options["rehypePlugins"]>;
 const HIGHLIGHT: RehypePlugins[number] = [rehypeHighlight, { detect: false, ignoreMissing: true }];
 const PLAIN: RehypePlugins = [HIGHLIGHT];
 const DOCUMENT: RehypePlugins = [rehypeRaw, rehypeSanitize, rehypeSlug, HIGHLIGHT];
+const FILE_DOCUMENT: RehypePlugins = [captureFileTargets, ...DOCUMENT, restoreFileTargets];
+
+type FileTarget = { tag: "a" | "img"; written: string; rendered?: string };
+
+const targetsByFile = new WeakMap<object, Map<number, FileTarget>>();
+const targetsByNode = new WeakMap<MarkdownNode, FileTarget>();
+
+export function markdownFileTarget(node: MarkdownNode | undefined) {
+  return node && targetsByNode.get(node);
+}
+
+function eachFileNode(
+  node: MarkdownNode,
+  visit: (node: MarkdownNode, tag: "a" | "img", offset: number) => void,
+): void {
+  const { tagName, position } = node;
+  const offset = position?.start?.offset;
+  if ((tagName === "a" || tagName === "img") && offset !== undefined) visit(node, tagName, offset);
+  for (const child of node.children ?? []) eachFileNode(child as MarkdownNode, visit);
+}
+
+function captureFileTargets() {
+  return (tree: MarkdownNode, file: object) => {
+    const targets = new Map<number, FileTarget>();
+    eachFileNode(tree, (node, tag, offset) => {
+      const written = writtenHrefOf(node);
+      if (written === undefined) return;
+      const rendered = node.properties?.[tag === "a" ? "href" : "src"];
+      targets.set(offset, {
+        tag,
+        written,
+        rendered:
+          isWindowsPathTarget(written) && typeof rendered === "string" ? rendered : undefined,
+      });
+    });
+    targetsByFile.set(file, targets);
+  };
+}
+
+function restoreFileTargets() {
+  return (tree: MarkdownNode, file: object) => {
+    const targets = targetsByFile.get(file);
+    if (!targets) return;
+    eachFileNode(tree, (node, tag, offset) => {
+      const target = targets.get(offset);
+      if (target?.tag === tag) targetsByNode.set(node, target);
+    });
+  };
+}
 
 const WEB_LINK = /^https?:\/\//i;
 
@@ -94,11 +144,24 @@ const WEB_ONLY: Components = {
   img: ({ alt }) => <ImageName alt={alt} />,
 };
 
+type Shown = Components["a"] | Components["img"];
+
+function withoutWrittenHref(tag: "a" | "img", shown: Shown) {
+  return function WithoutWrittenHref(props: object) {
+    const { "data-written-href": _written, ...rest } = props as Record<string, unknown>;
+    if (shown !== undefined && typeof shown !== "string")
+      return createElement(shown as never, rest);
+    const { node: _node, ...attributes } = rest;
+    return createElement(shown ?? tag, attributes);
+  };
+}
+
 export interface MarkdownBodyProps {
   source: string;
   components?: Components;
   links?: "web-only";
   html?: boolean;
+  writtenFileTargets?: boolean;
   urlTransform?: UrlTransform;
 }
 
@@ -107,16 +170,21 @@ export const MarkdownBody = memo(function MarkdownBody({
   components,
   links,
   html = false,
+  writtenFileTargets = false,
   urlTransform,
 }: MarkdownBodyProps) {
-  const merged = useMemo<Components>(
-    () => ({ ...BASE, ...(links === "web-only" ? WEB_ONLY : {}), ...components }),
-    [components, links],
-  );
+  const merged = useMemo<Components>(() => {
+    const given: Components = { ...BASE, ...(links === "web-only" ? WEB_ONLY : {}), ...components };
+    return {
+      ...given,
+      a: withoutWrittenHref("a", given.a) as Components["a"],
+      img: withoutWrittenHref("img", given.img) as Components["img"],
+    };
+  }, [components, links]);
   return (
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={html ? DOCUMENT : PLAIN}
+      rehypePlugins={html ? (writtenFileTargets ? FILE_DOCUMENT : DOCUMENT) : PLAIN}
       components={merged}
       urlTransform={urlTransform}
     >

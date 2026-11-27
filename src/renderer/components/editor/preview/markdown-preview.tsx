@@ -9,25 +9,35 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { Components } from "react-markdown";
+import { isWindowsPathTarget, linkHrefOf } from "../../../../shared/chat/link-text";
+import { isNetworkLink, networkLinkPath } from "../../../../shared/fs/outside-url";
 import { createLogger } from "../../../../shared/log/renderer";
+import { useChatFiles } from "../../../services/chat/chat-files";
+import { grantsOf } from "../../../services/chat/linked-files";
 import { openOrRevealEditor } from "../../../services/editor";
 import {
   classifyLinkHref,
   type LinkClassifyContext,
+  linkTargetPath,
 } from "../../../services/editor/preview/link-router";
 import { buildOutsideUrl, buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { peerOf } from "../../../services/remote/peer-workspace";
 import { copyText } from "../../../utils/clipboard";
 import { useChatLinks } from "../../chat/chat-links";
+import { ImageChip } from "../../chat/file-image";
 import {
   ImageName,
   MarkdownBody,
   MarkdownCodeBlock,
   type MarkdownNode,
+  markdownFileTarget,
   markdownText,
 } from "../../ui/markdown-body";
+import { useDecodedImageSrc } from "../../ui/use-decoded-image-src";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
+import { PeerFileImage } from "./peer-file-image";
+import { useImageFileSrc } from "./use-image-file-src";
 
 const log = createLogger("markdown-preview");
 
@@ -92,10 +102,27 @@ export function MarkdownPreview({
   }, []);
 
   const chatLinks = useChatLinks();
+  const viaHost = grantsOf(useChatFiles()) && peerOf(workspaceId) !== null;
   const onLinkClick = useCallback(
-    (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
+    (href: string, written: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
+      const link = { href: written, source: { kind: "file", parent: currentFileAbsPath } } as const;
+      if (viaHost && chatLinks && (isNetworkLink(written) || isNetworkLink(href))) {
+        chatLinks.openFile(href || written, { link });
+        return;
+      }
       const classified = classifyLinkHref(href, linkCtx);
+      if (
+        viaHost &&
+        chatLinks &&
+        href &&
+        classified.kind === "blocked" &&
+        !href.startsWith("#") &&
+        (isWindowsPathTarget(written) || !/^[a-z][a-z0-9+.-]+:/i.test(href))
+      ) {
+        chatLinks.openFile(href, { link });
+        return;
+      }
       switch (classified.kind) {
         case "anchor":
           scrollToAnchor(classified.id);
@@ -112,7 +139,7 @@ export function MarkdownPreview({
           return;
       }
     },
-    [linkCtx, scrollToAnchor, workspaceId, chatLinks],
+    [linkCtx, scrollToAnchor, workspaceId, chatLinks, viaHost, currentFileAbsPath],
   );
 
   const onCopyAnchor = useCallback((id: string) => {
@@ -154,21 +181,72 @@ export function MarkdownPreview({
 
   const components = useMemo<Components>(
     () => ({
-      a({ href, children, ...rest }) {
+      a({ href, children, node, ...rest }) {
         const safeHref = typeof href === "string" ? href : "";
+        const target = markdownFileTarget(node);
+        const written = target?.written ?? linkHrefOf(safeHref);
         return (
-          <a {...rest} href={safeHref} onClick={(e) => onLinkClick(safeHref, e)}>
+          <a
+            {...rest}
+            href={safeHref}
+            onClick={(e) => onLinkClick(target?.rendered ?? safeHref, written, e)}
+          >
             {children}
           </a>
         );
       },
-      img({ src, alt, ...rest }) {
-        const rawSrc = typeof src === "string" ? src : "";
-        const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
-        if (resolved === null) {
-          return <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />;
+      img({ src, alt, node, ...rest }) {
+        const target = markdownFileTarget(node);
+        const rawSrc = target?.rendered ?? (typeof src === "string" ? src : "");
+        const written = target?.written ?? linkHrefOf(rawSrc);
+        const network = viaHost ? (networkLinkPath(rawSrc) ?? networkLinkPath(written)) : null;
+        if (network !== null) {
+          return (
+            <ImageChip
+              path={network}
+              link={{ href: written, source: { kind: "file", parent: currentFileAbsPath } }}
+            />
+          );
         }
-        return <img {...rest} src={resolved} alt={alt ?? ""} />;
+        const embedded = images?.get(rawSrc);
+        if (embedded !== undefined) return <img {...rest} src={embedded} alt={alt ?? ""} />;
+        const classified = classifyLinkHref(rawSrc, imageCtx);
+        const unread = (
+          <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />
+        );
+        if (classified.kind === "external") {
+          return <img {...rest} src={classified.href} alt={alt ?? ""} />;
+        }
+        if (classified.kind === "internal-file") {
+          const peer = peerOf(workspaceId) !== null;
+          const path = peer ? classified.absPath : classified.relPath;
+          const url = peer
+            ? buildOutsideUrl(workspaceId, path)
+            : buildWorkspaceUrl(workspaceId, path);
+          return (
+            <WorkspaceMarkdownImage
+              {...rest}
+              workspaceId={workspaceId}
+              path={path}
+              url={url}
+              alt={alt ?? ""}
+            />
+          );
+        }
+        const outside = viaHost ? linkTargetPath(rawSrc || written, currentFileAbsPath) : null;
+        if (outside) {
+          return (
+            <PeerFileImage
+              {...rest}
+              path={outside}
+              href={written}
+              parent={currentFileAbsPath}
+              alt={alt ?? ""}
+              fallback={unread}
+            />
+          );
+        }
+        return unread;
       },
       li: MdListItem,
       input: MdInput,
@@ -180,7 +258,7 @@ export function MarkdownPreview({
       h5: MdHeading,
       h6: MdHeading,
     }),
-    [imageCtx, images, onLinkClick, workspaceId, t],
+    [imageCtx, images, onLinkClick, workspaceId, t, viaHost, currentFileAbsPath],
   );
 
   return (
@@ -195,7 +273,7 @@ export function MarkdownPreview({
       )}
       <PreviewContext.Provider value={previewCtx}>
         <div className="md-content mx-auto max-w-[72ch] px-6 py-4 text-[var(--surface-island-fg)]">
-          <MarkdownBody source={text} components={components} html />
+          <MarkdownBody source={text} components={components} html writtenFileTargets={viaHost} />
         </div>
       </PreviewContext.Provider>
     </div>
@@ -340,24 +418,15 @@ export function stripFrontmatter(source: string): string {
   return source.replace(FRONTMATTER_RE, "");
 }
 
-function resolveImageSrc(
-  rawSrc: string,
-  workspaceId: string,
-  ctx: LinkClassifyContext,
-): string | null {
-  if (!rawSrc) return null;
-  const classified = classifyLinkHref(rawSrc, ctx);
-  switch (classified.kind) {
-    case "external":
-      return classified.href;
-    case "internal-file":
-      return peerOf(workspaceId)
-        ? buildOutsideUrl(workspaceId, classified.absPath)
-        : buildWorkspaceUrl(workspaceId, classified.relPath);
-    case "anchor":
-    case "blocked":
-      return null;
-  }
+function WorkspaceMarkdownImage({
+  workspaceId,
+  path,
+  url,
+  alt,
+  ...props
+}: { workspaceId: string; path: string; url: string } & React.ImgHTMLAttributes<HTMLImageElement>) {
+  const src = useDecodedImageSrc(useImageFileSrc(workspaceId, path, url), url);
+  return <img {...props} src={src} alt={alt ?? ""} />;
 }
 
 function cssEscape(value: string): string {

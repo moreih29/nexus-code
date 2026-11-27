@@ -622,7 +622,9 @@
         "unsupported": "The server doesn't take reports yet. Use the support page for now.",
         "offline": "Can't reach the server. Try again shortly.",
         "failed": "Couldn't send the report. Try again."
-      }
+      },
+      "discardDraft": "Discard draft",
+      "draftError": "Couldn't access the draft. Try again."
     },
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",

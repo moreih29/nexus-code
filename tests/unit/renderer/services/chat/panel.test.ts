@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { lookAtImage } from "../../../../../src/renderer/services/chat/image-look";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
@@ -14,6 +14,7 @@ import {
   agentsOf,
   agentTranscript,
   answerExtras,
+  answerLinks,
   attachedFilesIn,
   attachedImagesOf,
   changedFilesOf,
@@ -30,11 +31,13 @@ import {
   outsideLinkedFiles,
   outsideLinksOf,
   pastAgentsOf,
+  resultSource,
   resultsOf,
   sentFilesOf,
   todosOf,
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
+import * as linkText from "../../../../../src/shared/chat/link-text";
 import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
 import { shownPath } from "../../../../../src/shared/fs/relative-path";
 
@@ -410,6 +413,62 @@ describe("chat panel", () => {
       { kind: "url", target: "https://example.com/docs", created: false },
       { kind: "file", target: "src/app.ts", created: false },
     ]);
+  });
+
+  test("reuses link extraction by text and extracts new text", () => {
+    const extract = spyOn(linkText, "writtenLinksIn");
+    const resultsFor = (text: string) => {
+      const model = applyLines(emptyModel(), [assistant("memo", [{ type: "text", text }])]);
+      return resultsOf(model.items, model.tools, "/p");
+    };
+    try {
+      const first = "[one](/p/cache-first.md)";
+      const second = "[two](/p/cache-second.md)";
+      const firstResult = [{ kind: "file", target: "/p/cache-first.md", created: false }];
+      expect(resultsFor(first)).toEqual(firstResult);
+      expect(resultsFor(first)).toEqual(firstResult);
+      expect(extract).toHaveBeenCalledTimes(1);
+      expect(resultsFor(second)).toEqual([
+        { kind: "file", target: "/p/cache-second.md", created: false },
+      ]);
+      expect(extract.mock.calls).toEqual([[first], [second]]);
+    } finally {
+      extract.mockRestore();
+    }
+  });
+
+  test("each result and answer card keeps the link as written and where it came from", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        {
+          type: "tool_use",
+          id: "w",
+          name: "Write",
+          input: { file_path: "/p/report.md", content: "x" },
+        },
+      ]),
+      result("w", "ok", { type: "create", filePath: "/p/report.md" }),
+      assistant("m2", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "/p/src/app.ts" } },
+        { type: "text", text: "See [notes](../qa/notes.md) and `src/app.ts`." },
+      ]),
+    ]);
+    const answerKey = model.items.find(
+      (item) => item.kind === "assistant" && item.messageId === "m2",
+    )?.key;
+    const results = resultsOf(model.items, model.tools, "/p");
+    expect(results.map((result) => [result.target, resultSource(result)])).toEqual([
+      ["/p/report.md", { kind: "tool", toolUseId: "w" }],
+      ["../qa/notes.md", { kind: "answer", itemKey: answerKey }],
+      ["src/app.ts", { kind: "answer", itemKey: answerKey }],
+    ]);
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(answerLinks(extras!)).toEqual({
+      "/p/report.md": { href: "/p/report.md", source: { kind: "tool", toolUseId: "w" } },
+      "/qa/notes.md": { href: "../qa/notes.md", source: { kind: "answer", itemKey: answerKey } },
+      "/p/src/app.ts": { href: "src/app.ts", source: { kind: "answer", itemKey: answerKey } },
+    });
   });
 
   test("a path only backticks name is a file the session's tools took; a lone /word is a command", () => {

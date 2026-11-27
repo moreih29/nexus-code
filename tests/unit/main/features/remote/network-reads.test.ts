@@ -1,4 +1,14 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import os from "node:os";
@@ -9,6 +19,7 @@ import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import {
   listFiles,
   networkRootOf,
+  outsideFileSource,
   type RemoteFiles,
   readFile,
 } from "../../../../../src/main/features/remote/files";
@@ -849,5 +860,79 @@ describe("folders.list asked by another device", () => {
       { name: "outside" },
       { name: "w" },
     ]);
+  });
+});
+
+describe.if(!WINDOWS)("a link on the way to a file another device reads", () => {
+  let linkDir = "";
+  let linkedFile = "";
+  let linkedFolder = "";
+  beforeAll(() => {
+    linkDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-net-links-")));
+    linkedFile = path.join(linkDir, "file.txt");
+    linkedFolder = path.join(linkDir, "share");
+    fs.mkdirSync(path.join(linkDir, "plain"), { recursive: true });
+    fs.symlinkSync(outside, linkedFile);
+    fs.symlinkSync(outsideDir, linkedFolder);
+  });
+  afterAll(() => fs.rmSync(linkDir, { recursive: true, force: true }));
+
+  function linksToAutomount() {
+    return spyOn(fs.promises, "readlink").mockImplementation((async (p: string) =>
+      p === linkedFile ? "/net/qa-s3/a.txt" : p === linkedFolder ? "/Network/qa-s3" : "") as never);
+  }
+
+  test("is refused when it leads to an automount path, before the file is resolved or read", async () => {
+    const readlink = linksToAutomount();
+    try {
+      const { fs: agent, calls } = provider();
+      for (const [files, asked] of [
+        [remoteFiles(agent, { named: [linkedFile] }), linkedFile],
+        [remoteFiles(agent, { folders: [linkDir] }), linkedFile],
+        [
+          remoteFiles(agent, { named: [path.join(linkedFolder, "a.txt")] }),
+          path.join(linkedFolder, "a.txt"),
+        ],
+      ] as const) {
+        await expect(
+          readFile(files, root, { workspaceId: "w", path: asked }),
+        ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+      }
+      await expect(outsideFileSource(linkedFile)).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+      });
+      expect(realpaths().filter((p) => p !== root)).toEqual([]);
+      expect(agentCalls(calls)).toBe(0);
+    } finally {
+      readlink.mockRestore();
+    }
+  });
+
+  test("reads as before when the link stays on this computer", async () => {
+    const { fs: agent } = provider();
+    expect(
+      await readFile(remoteFiles(agent, { named: [linkedFile] }), root, {
+        workspaceId: "w",
+        path: linkedFile,
+      }),
+    ).toMatchObject({ kind: "text", text: "outside" });
+  });
+
+  test("folders.list skips a linked folder that leads to an automount path and refuses listing it", async () => {
+    const system: FolderSystem = { platform: "darwin", home: () => tmp };
+    expect((await listFolders({ path: linkDir }, system)).entries).toEqual([
+      { name: "plain" },
+      { name: "share" },
+    ]);
+    const readlink = linksToAutomount();
+    try {
+      expect((await listFolders({ path: linkDir }, system)).entries).toEqual([{ name: "plain" }]);
+      await expect(listFolders({ path: linkedFolder }, system)).rejects.toMatchObject({
+        code: RpcErrorCode.InvalidParams,
+      });
+      expect(realpaths()).toEqual([]);
+    } finally {
+      readlink.mockRestore();
+    }
   });
 });

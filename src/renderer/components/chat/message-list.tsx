@@ -34,7 +34,12 @@ import { shortId } from "../../../shared/util/short-id";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
-import { useChatFiles } from "../../services/chat/chat-files";
+import {
+  type FileLinkSource,
+  FileLinkSourceContext,
+  useChatFiles,
+  useFileLinkSource,
+} from "../../services/chat/chat-files";
 import { attachmentTarget, isFolder, splitAttachments } from "../../services/chat/composer-input";
 import { callsUnder, type ItemView, itemView, sameView } from "../../services/chat/item-view";
 import {
@@ -836,6 +841,8 @@ function ShellCard({ item }: { item: ShellItem }) {
 function AttachedFile({ path, namedOnly }: { path: string; namedOnly: boolean }) {
   const { t } = useTranslation();
   const links = useChatLinks();
+  const source = useFileLinkSource();
+  const grants = useChatFiles()?.open !== undefined;
   const target = attachmentTarget(path);
   const name = path.split(/[\\/]/).pop() ?? path;
   const chip =
@@ -851,7 +858,9 @@ function AttachedFile({ path, namedOnly }: { path: string; namedOnly: boolean })
   return (
     <button
       type="button"
-      onClick={() => links.openFile(target)}
+      onClick={() =>
+        links.openFile(target, grants && source ? { link: { href: target, source } } : undefined)
+      }
       title={path}
       aria-label={`${t("chat.links.look")} · ${name}`}
       className={cn(
@@ -877,6 +886,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const files = optimistic?.fileNames ?? parts.files;
   const status = optimistic?.status;
   const submittedAt = optimistic?.submittedAt;
+  const source = useMemo<FileLinkSource>(() => ({ kind: "user", itemKey: item.key }), [item.key]);
   useEffect(() => {
     if (!import.meta.env.DEV || submittedAt === undefined) return;
     let frame = requestAnimationFrame(() => {
@@ -891,89 +901,93 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
     return () => cancelAnimationFrame(frame);
   }, [submittedAt]);
   return (
-    <div className="group/user flex flex-col items-end gap-1">
-      {item.images.length > 0 && (
-        <div className="flex flex-wrap justify-end gap-1.5">
-          {item.images.map((_, i) => (
-            <ChatImage
-              // biome-ignore lint/suspicious/noArrayIndexKey: a message's images keep their order
-              key={i}
-              images={item.images}
-              index={i}
-              className="max-h-32 max-w-48 rounded-(--radius-control) border border-border object-cover"
-            />
-          ))}
-        </div>
-      )}
-      {files.length > 0 && (
-        <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-          {files.map((path) => (
-            <AttachedFile
-              key={path}
-              path={path}
-              namedOnly={optimistic !== undefined || item.text.startsWith(RELAY_MARK)}
-            />
-          ))}
-        </div>
-      )}
-      {text && (
-        <div className="max-w-[85%] rounded-(--radius-raised) bg-[var(--chat-user-bg)] px-3 py-2 text-app-body whitespace-pre-wrap break-words select-text">
-          {text}
-        </div>
-      )}
-      {optimistic ? (
-        <div className="flex items-center gap-2 text-app-micro text-muted-foreground">
-          <span role="status" title={optimistic.error}>
-            {t(`chat.message.peer_${status}`, {
-              context: optimistic.queued ? "queued" : undefined,
-            })}
-          </span>
-          {(status === "failed" || status === "unconfirmed") && actions?.onRecoverSubmission && (
-            <button
-              type="button"
-              className="rounded-(--radius-control) px-1 text-primary hover:bg-[var(--state-hover-bg)]"
-              onClick={() => actions.onRecoverSubmission?.(item.key)}
-            >
-              {t("chat.message.peer_recover")}
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
-          <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
-            <MessageTime at={item.at} />
-            {item.text && <CopyButton text={item.text} label={t("chat.copy")} />}
-            {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
-              <IconButton
-                label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
-                blocked={actions.running}
-                onClick={() => actions.onRewind?.(item)}
+    <FileLinkSourceContext.Provider value={source}>
+      <div className="group/user flex flex-col items-end gap-1">
+        {item.images.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {item.images.map((_, i) => (
+              <ChatImage
+                // biome-ignore lint/suspicious/noArrayIndexKey: a message's images keep their order
+                key={i}
+                images={item.images}
+                index={i}
+                className="max-h-32 max-w-48 rounded-(--radius-control) border border-border object-cover"
+              />
+            ))}
+          </div>
+        )}
+        {files.length > 0 && (
+          <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+            {files.map((path) => (
+              <AttachedFile
+                key={path}
+                path={path}
+                namedOnly={optimistic !== undefined || item.text.startsWith(RELAY_MARK)}
+              />
+            ))}
+          </div>
+        )}
+        {text && (
+          <div className="max-w-[85%] rounded-(--radius-raised) bg-[var(--chat-user-bg)] px-3 py-2 text-app-body whitespace-pre-wrap break-words select-text">
+            {text}
+          </div>
+        )}
+        {optimistic ? (
+          <div className="flex items-center gap-2 text-app-micro text-muted-foreground">
+            <span role="status" title={optimistic.error}>
+              {t(`chat.message.peer_${status}`, {
+                context: optimistic.queued ? "queued" : undefined,
+              })}
+            </span>
+            {(status === "failed" || status === "unconfirmed") && actions?.onRecoverSubmission && (
+              <button
+                type="button"
+                className="rounded-(--radius-control) px-1 text-primary hover:bg-[var(--state-hover-bg)]"
+                onClick={() => actions.onRecoverSubmission?.(item.key)}
               >
-                <RotateCcw className="size-3.5" />
-              </IconButton>
-            )}
-            {actions?.onFork && (actions.canForkItem?.(item) ?? taken) && (
-              <IconButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
-                <GitFork className="size-3.5" />
-              </IconButton>
+                {t("chat.message.peer_recover")}
+              </button>
             )}
           </div>
-          <span
-            title={item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")}
-            role="img"
-            aria-label={
-              item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")
-            }
-          >
-            {item.state === "taken" ? (
-              <CheckCheck className="size-3.5" />
-            ) : (
-              <Check className="size-3.5" />
-            )}
-          </span>
-        </div>
-      )}
-    </div>
+        ) : (
+          <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
+            <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
+              <MessageTime at={item.at} />
+              {item.text && <CopyButton text={item.text} label={t("chat.copy")} />}
+              {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
+                <IconButton
+                  label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
+                  blocked={actions.running}
+                  onClick={() => actions.onRewind?.(item)}
+                >
+                  <RotateCcw className="size-3.5" />
+                </IconButton>
+              )}
+              {actions?.onFork && (actions.canForkItem?.(item) ?? taken) && (
+                <IconButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
+                  <GitFork className="size-3.5" />
+                </IconButton>
+              )}
+            </div>
+            <span
+              title={
+                item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")
+              }
+              role="img"
+              aria-label={
+                item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")
+              }
+            >
+              {item.state === "taken" ? (
+                <CheckCheck className="size-3.5" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
+            </span>
+          </div>
+        )}
+      </div>
+    </FileLinkSourceContext.Provider>
   );
 }
 
@@ -997,67 +1011,70 @@ function AssistantMessage({
     (ctx.actions.canForkItem?.(item) ??
       (item.uuid !== undefined && item.blocks.at(-1)?.type === "text"));
   const { blocks, extras } = view;
+  const source = useMemo<FileLinkSource>(() => ({ kind: "answer", itemKey: item.key }), [item.key]);
   if (blocks.length === 0 && !extras) return null;
   return (
-    <div className="group/assistant flex flex-col">
-      {blocks.map((block, i) =>
-        block.type === "run" ? (
-          <ToolRun
-            key={`run-${runKey(block.blocks)}`}
-            blocks={block.blocks}
-            ctx={ctx}
-            view={view}
-          />
-        ) : block.type === "text" ? (
-          <ChatMarkdown
+    <FileLinkSourceContext.Provider value={source}>
+      <div className="group/assistant flex flex-col">
+        {blocks.map((block, i) =>
+          block.type === "run" ? (
+            <ToolRun
+              key={`run-${runKey(block.blocks)}`}
+              blocks={block.blocks}
+              ctx={ctx}
+              view={view}
+            />
+          ) : block.type === "text" ? (
+            <ChatMarkdown
+              // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
+              key={i}
+              text={block.text}
+              workspaceId={ctx.workspaceId}
+              cwd={ctx.cwd}
+              rootPath={ctx.rootPath}
+              shownEarlier={view.earlier.get(block)}
+            />
+          ) : block.type === "thinking" ? (
             // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
-            key={i}
-            text={block.text}
+            <Thinking key={i} text={block.text} />
+          ) : (
+            <CallRow
+              key={block.toolUseId}
+              toolUseId={block.toolUseId}
+              ctx={ctx}
+              tools={view.tools}
+              toolStatuses={view.toolStatuses}
+              shownEarlier={view.earlier.get(block.toolUseId)}
+            />
+          ),
+        )}
+        {extras && (
+          <AnswerExtrasView
+            extras={extras}
             workspaceId={ctx.workspaceId}
             cwd={ctx.cwd}
             rootPath={ctx.rootPath}
-            shownEarlier={view.earlier.get(block)}
           />
-        ) : block.type === "thinking" ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
-          <Thinking key={i} text={block.text} />
-        ) : (
-          <CallRow
-            key={block.toolUseId}
-            toolUseId={block.toolUseId}
-            ctx={ctx}
-            tools={view.tools}
-            toolStatuses={view.toolStatuses}
-            shownEarlier={view.earlier.get(block.toolUseId)}
-          />
-        ),
-      )}
-      {extras && (
-        <AnswerExtrasView
-          extras={extras}
-          workspaceId={ctx.workspaceId}
-          cwd={ctx.cwd}
-          rootPath={ctx.rootPath}
-        />
-      )}
-      {text && (
-        <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
-          <CopyButton text={text} label={t("chat.copy")} />
-          {forkable && ctx.actions && (
-            <IconButton
-              label={t("chat.fork.from_assistant")}
-              onClick={() => ctx.actions?.onFork?.(item)}
-            >
-              <GitFork className="size-3.5" />
-            </IconButton>
-          )}
-          {ctx.wholeConversation && ctx.tabId && (
-            <SaveAnswerMenu claudeUuid={item.uuid} messageId={item.messageId} markdown={text} />
-          )}
-          <MessageTime at={item.at} />
-        </div>
-      )}
-    </div>
+        )}
+        {text && (
+          <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
+            <CopyButton text={text} label={t("chat.copy")} />
+            {forkable && ctx.actions && (
+              <IconButton
+                label={t("chat.fork.from_assistant")}
+                onClick={() => ctx.actions?.onFork?.(item)}
+              >
+                <GitFork className="size-3.5" />
+              </IconButton>
+            )}
+            {ctx.wholeConversation && ctx.tabId && (
+              <SaveAnswerMenu claudeUuid={item.uuid} messageId={item.messageId} markdown={text} />
+            )}
+            <MessageTime at={item.at} />
+          </div>
+        )}
+      </div>
+    </FileLinkSourceContext.Provider>
   );
 }
 
@@ -1221,32 +1238,38 @@ function Streaming({
   const blocks = Object.entries(streaming.blocks)
     .map(([index, block]) => ({ index: Number(index), block }))
     .sort((a, b) => a.index - b.index);
+  const source = useMemo<FileLinkSource>(
+    () => ({ kind: "streaming", messageId: streaming.messageId }),
+    [streaming.messageId],
+  );
   if (blocks.length === 0) return null;
   return (
-    <div className="flex flex-col" data-testid="chat-streaming">
-      {blocks.map(({ index, block }) =>
-        block.type === "text" ? (
-          <ChatMarkdown
-            key={index}
-            text={block.text}
-            workspaceId={ctx.workspaceId}
-            cwd={ctx.cwd}
-            rootPath={ctx.rootPath}
-            shownEarlier={shownEarlier}
-          />
-        ) : block.type === "thinking" ? (
-          <Thinking key={index} text={block.text} live />
-        ) : block.toolUseId ? (
-          <CallRow
-            key={block.toolUseId}
-            toolUseId={block.toolUseId}
-            ctx={ctx}
-            tools={tools}
-            toolStatuses={toolStatuses}
-          />
-        ) : null,
-      )}
-    </div>
+    <FileLinkSourceContext.Provider value={source}>
+      <div className="flex flex-col" data-testid="chat-streaming">
+        {blocks.map(({ index, block }) =>
+          block.type === "text" ? (
+            <ChatMarkdown
+              key={index}
+              text={block.text}
+              workspaceId={ctx.workspaceId}
+              cwd={ctx.cwd}
+              rootPath={ctx.rootPath}
+              shownEarlier={shownEarlier}
+            />
+          ) : block.type === "thinking" ? (
+            <Thinking key={index} text={block.text} live />
+          ) : block.toolUseId ? (
+            <CallRow
+              key={block.toolUseId}
+              toolUseId={block.toolUseId}
+              ctx={ctx}
+              tools={tools}
+              toolStatuses={toolStatuses}
+            />
+          ) : null,
+        )}
+      </div>
+    </FileLinkSourceContext.Provider>
   );
 }
 

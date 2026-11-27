@@ -169,6 +169,7 @@ export function opensTurn(item: ChatItem): boolean {
 
 export interface ToolResult {
   text: string;
+  truncated?: boolean;
   isError: boolean;
   structured?: unknown;
   images: ImageBlock[];

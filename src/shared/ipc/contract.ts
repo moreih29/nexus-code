@@ -154,6 +154,7 @@ import {
 } from "../remote/account";
 import {
   BugReportDraftSchema,
+  BugReportFieldsSchema,
   BugReportLocaleSchema,
   BugReportOutcomeSchema,
   ReportedErrorSchema,
@@ -2125,7 +2126,15 @@ const remoteContracts = {
         z.object({ locale: BugReportLocaleSchema, includeErrors: z.boolean() }),
         BugReportContextSchema,
       ),
-      sendBugReport: call(BugReportDraftSchema, BugReportOutcomeSchema),
+      bugReportDraft: call(z.object({ owner: z.string() }), BugReportFieldsSchema.nullable()),
+      saveBugReportDraft: call(
+        z.object({ owner: z.string(), fields: BugReportFieldsSchema }),
+        z.void(),
+      ),
+      sendBugReport: call(
+        BugReportDraftSchema.extend({ owner: z.string() }),
+        BugReportOutcomeSchema,
+      ),
       phonePushPolicy: call(z.void(), PhonePushPolicySchema),
       setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
       peerSessionsWatch: call(
@@ -2280,6 +2289,20 @@ const remoteContracts = {
           .merge(RPC_METHODS["profiles.list"].params.omit({ from: true })),
         RPC_METHODS["profiles.list"].result,
       ),
+      peerProfilesUsage: call(
+        z.object({ deviceId: z.string().min(1).max(64), refresh: z.boolean().optional() }),
+        RPC_METHODS["profiles.usage"].result,
+      ),
+      peerFoldersList: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["folders.list"].params),
+        RPC_METHODS["folders.list"].result,
+      ),
+      peerWorkspaceCreate: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["workspace.create"].params),
+        RPC_METHODS["workspace.create"].result,
+      ),
       peerChatConfig: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.config"].params),
         RPC_METHODS["chat.config"].result,
@@ -2306,6 +2329,13 @@ const remoteContracts = {
           .merge(RPC_METHODS["chat.instructions.set"].params.omit({ from: true })),
         RPC_METHODS["chat.instructions.set"].result,
       ),
+      peerChatTool: call(
+        RPC_METHODS["chat.tool"].params.omit({ from: true, cli: true }).extend({
+          deviceId: z.string().min(1).max(64),
+          runId: z.string().max(200),
+        }),
+        RPC_METHODS["chat.tool"].result,
+      ),
       peerChatImage: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
@@ -2329,8 +2359,30 @@ const remoteContracts = {
         RPC_METHODS["system.stats"].result,
       ),
       peerFilesRead: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64), probe: z.literal(true).optional() })
+          .merge(RPC_METHODS["files.read"].params),
         RPC_METHODS["files.read"].result,
+      ),
+      peerFilesResolve: call(
+        z.object({
+          deviceId: z.string().min(1).max(64),
+          workspaceId: RPC_METHODS["files.resolve"].params.shape.workspaceId,
+          tabId: RPC_METHODS["files.resolve"].params.shape.tabId,
+          links: RPC_METHODS["files.resolve"].params.shape.links,
+        }),
+        RPC_METHODS["files.resolve"].result,
+      ),
+      peerFilesGrant: call(
+        z.object({
+          deviceId: z.string().min(1).max(64),
+          workspaceId: RPC_METHODS["files.grant"].params.shape.workspaceId,
+          tabId: RPC_METHODS["files.grant"].params.shape.tabId,
+          href: RPC_METHODS["files.grant"].params.shape.href,
+          source: RPC_METHODS["files.grant"].params.shape.source,
+          purpose: RPC_METHODS["files.grant"].params.shape.purpose,
+        }),
+        z.object({ path: z.string() }),
       ),
       peerFilesReadBytes: call(
         z.object({
@@ -2454,6 +2506,10 @@ const remoteContracts = {
         z.void(),
       ),
       chatWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
+      chatSourcesChanged: call(
+        z.object({ workspaceId: z.string().min(1), tabId: z.string().min(1) }),
+        z.void(),
+      ),
       terminalChanged: call(
         z.object({
           watchId: z.string(),

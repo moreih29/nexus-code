@@ -12,6 +12,7 @@ import {
 } from "../../../shared/chat/instructions";
 import type { CliChatInfo, CliChatSettings, CliLimitResume, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
+import { isUnder } from "../../../shared/fs/relative-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { LimitResume } from "../../../shared/types/layout";
 import { toolSummary } from "../../components/chat/tool-row";
@@ -44,7 +45,6 @@ import { CodexReplyError, existingCodexController } from "../chat/codex/controll
 import { fileMention } from "../chat/composer-input";
 import { type ChatItem, type ChatModel, isWaiting, type UserItem } from "../chat/model";
 import type { ModelPickerContext } from "../chat/model-picker";
-import { changedShareFiles, hostedOutsideFiles, jobOutputFile, jobsOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
@@ -98,6 +98,7 @@ import {
   chatToolOf,
   pageEntriesOf,
 } from "./chat-view";
+import { linkCandidates, outsideFilesOf, sourcePresent, watchChatSources } from "./file-links";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
 import { profileUsage } from "./profile-usage";
@@ -871,33 +872,51 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { signedOut: target.controller.model.signedOut === true };
   },
 
-  "chat.outsideFiles": async ({ workspaceId }) => {
-    const root = useWorkspacesStore
-      .getState()
-      .workspaces.find((w) => w.id === workspaceId)?.rootPath;
-    const files = new Set<string>();
-    const attachRoot = root ? await attachRootOf(workspaceId) : null;
-    for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
-      if (tab.type !== "claude" && tab.type !== "codex") continue;
-      const chat = useChatStore.getState().tabs[chatKey(workspaceId, tab.id)];
-      if (!chat) continue;
-      const { model, history } = chat;
-      const items = history ? [...history.items, ...model.items] : model.items;
-      const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-      for (const job of jobsOf(model)) {
-        const path = jobOutputFile(job, tools);
-        if (path) files.add(path);
-      }
-      const attached = (file: string) =>
-        attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null;
-      if (root) {
-        for (const file of hostedOutsideFiles(items, tools, tab.props.cwd, root, attached)) {
-          files.add(file);
-        }
-        for (const file of changedShareFiles(tools, root)) files.add(file);
-      }
+  "chat.outsideFiles": async ({ workspaceId }) => outsideFilesOf(workspaceId),
+
+  "chat.fileLinks": async ({ workspaceId, tabId, links }) => {
+    watchChatSources();
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== "claude" && tab?.type !== "codex") {
+      throw new UiRequestError("that tab is not a Claude or Codex tab");
     }
-    return { files: [...files] };
+    const root = workspaceRoot(workspaceId);
+    const attachRoot = await attachRootOf(workspaceId);
+    const allowsAttachment = (file: string) =>
+      isUnder(file, root) ||
+      (attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null);
+    const sources = new Map<string | undefined, Promise<ChatSource | null>>();
+    const sourceFor = (runId: string | undefined) => {
+      const known = sources.get(runId) ?? readSourceOf(workspaceId, tabId, runId).catch(() => null);
+      sources.set(runId, known);
+      return known;
+    };
+    const candidates: (string[] | null)[] = [];
+    for (const { href, source } of links) {
+      const chat = await sourceFor(source.runId);
+      candidates.push(chat && linkCandidates(chat, tab.props.cwd, href, source, allowsAttachment));
+    }
+    return { candidates };
+  },
+
+  "chat.sourcesPresent": async ({ workspaceId, tabId, sources }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== "claude" && tab?.type !== "codex")
+      return { present: sources.map(() => false) };
+    const read = new Map<string | undefined, Promise<ChatSource | null>>();
+    const present: boolean[] = [];
+    for (const source of sources) {
+      const runId = source.kind === "file" ? undefined : source.runId;
+      const known =
+        read.get(runId) ??
+        (runId === undefined
+          ? Promise.resolve(tabSource(workspaceId, tabId, tab.type))
+          : runSourceOf(workspaceId, tabId, runId).catch(() => null));
+      read.set(runId, known);
+      const chat = await known;
+      present.push(chat !== null && sourcePresent(chat, source));
+    }
+    return { present };
   },
 
   "chat.interrupt": async ({ workspaceId, tabId }) => {

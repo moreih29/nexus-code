@@ -28,6 +28,7 @@ const RemoteFileSnapshotSchema = z.object({
   mode: z.enum(["raw", "preview"]).optional(),
   compare: z.boolean().optional(),
   compareFrom: z.string().optional(),
+  tabId: z.string().optional(),
 });
 export type RemoteFileSnapshot = z.infer<typeof RemoteFileSnapshotSchema>;
 

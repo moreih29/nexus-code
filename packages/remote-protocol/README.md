@@ -94,6 +94,92 @@ Since package 0.39.0, `RemoteConsent` can carry these optional fields:
 
 `sessions.list`, `sessions.watch`, and `sessions.update` may include `consentResolutions?: RemoteConsentResolution[]` beside the pending `consents` array. Each entry is `{ id: string; reason: "answered" | "timeout" | "cancelled" }`. `answered` includes any accepted answer, including denial, on the host or a peer. `timeout` means the host's approval prompt expired. `cancelled` means the request was withdrawn or the host could no longer ask for approval. The host retains up to 64 entries for up to 60 seconds and may repeat them across snapshots. Match by serving device and consent ID, and show a resolution only for a previously seen prompt. A resolved prompt still disappears from `consents`. If no resolution is available, disappearance by itself provides no reason.
 
+### Schema 0.40.0: file grants
+
+Since package 0.40.0, a device can show and open files outside a workspace's folders that a chat names, without reading them on its own. A host that serves it lists the capability `files.grants`, and only where it serves `files` and `chat.read` both. A reader uses the methods and fields below only with such a host. With an older host, it reads as before.
+
+What a reader may read outside the workspace's folders falls into three sets.
+
+- **Standing**: read with no grant. These are the paths of finished tool calls, attachments, background job outputs and the local images an answer links. For an agent's request (`from`), paths only a read-only tool named and answer images are left out.
+- **Mentioned**: every path the tab's chat names. A reader may ask whether one is there (`files.resolve`), but not read it.
+- **Granted**: a file the user opened. `files.grant` gives a short-lived token for it, and `files.read` takes the token.
+
+The host resolves every link itself. A reader sends the link as written (`href`) and where it came from (`source`, `FileLinkSourceSchema`). The host resolves a relative link against the session's folder, the tool call's `cwd`, or the parent file's folder, and answers the path.
+
+Source kinds. Each carries an optional `runId`, for a `claude -p` or `codex exec` run of the chat (as `chat.tool` takes it):
+
+| `kind` | Key | The link must be in |
+| --- | --- | --- |
+| `answer` | `itemKey` | that assistant item's text, in the conversation or a subagent's items |
+| `received` | `itemKey` | that received message's text |
+| `taskEnd` | `itemKey` | that task_end item's summary |
+| `streaming` | `messageId` | the reply being written, or once it ended, every assistant item with that `messageId`; gone after a rewind |
+| `tool` | `toolUseId` | that tool call's file path, notebook path or SendUserFile paths, or the links of its result |
+| `user` | `itemKey` | that user item's attachments. Each `@path` at the end of the item's text counts when it is inside the workspace's folder, even with no attach slot copy (`readable: true`; `files.grant` answers `{ path }` with no token). Outside the folder only the attach slot copy counts |
+| `job` | `taskId` | that background job's output file |
+| `change` | – | the chat's (or run's) changed files |
+| `file` | `parent`, `grant?` | the parent file's text, its first `MAX_FILE_SOURCE_PARENT_BYTES` (5 MiB); `grant` is the parent's token when it needed one. Links inside PDFs and Office documents are not taken |
+
+The host compares links after it cleans both sides the same way:
+
+1. Undo CommonMark backslash escapes, except in a Windows path target: one that, as written (before entities are decoded) and without `<...>`, starts with a drive (`C:\`, `C:/`) or with two slashes of either kind (`\\`, `//`, `\/`, `/\`). There every `\` stays, so `C:\Users\me\.claude\a.png` keeps `\.claude`.
+2. Take off `<...>`.
+3. Decode HTML entities.
+4. Percent-decode.
+5. Turn `\` into `/`.
+6. Take off a line tail (`#L12`, `#L12-L20`, `:12`, `:12:3`).
+
+Then they must match exactly.
+
+When a chat view or a held Markdown preview asks the host about an inline or reference file link or image, it sends the target as written. The `href` comes from the text, or from the definition used by a reference, with only `<...>` and a line tail taken off. Windows path targets are interpreted as in step 1.
+
+Links are inline link and image targets (balanced parentheses, `\)`, titles in `"`, `'` or `(...)`), reference links and images through a definition that starts a paragraph or a list item and has nothing after its target but an optional title, autolinks, and backtick paths of files a tool call touched. In an `.html` parent, `href` and `src` values count too. Apart from those backtick paths, nothing inside code or an HTML comment is a link. The host finds them as CommonMark and GFM do in these respects:
+
+- Fenced code blocks with backticks or tildes, with any line ending, also inside `>` quotes and list items, opened at most three spaces past the quote or list item's content. A block left open runs to the end of its quote or list item, or of the text.
+- Code spans, and HTML comments in a line or opening a line (such a comment left open runs to the end of its quote or list item, or of the text).
+- A link's text, target and title, a code span and a comment in a line end at a blank line and where another block starts (a quote, a list item, a heading, a fence, an HTML comment).
+- A `](` with no `[` before it is no link, nor is a link inside another link's text or an image's alt text.
+
+Where the host still differs: links in a block indented four spaces count, since telling such a block from a list item's text needs the whole list; links in HTML blocks other than comments count; bare `https://` and `www.` addresses are no links; a link whose target holds a backtick that a later backtick closes is taken as code. A reading that runs past a time limit (5 seconds) stops, and links from the block where it stopped on are not found.
+
+A two-slash, device or automount target goes through the host's network and device checks before it is resolved: the host never folds `//server/share/x` into the local `/server/share/x`.
+
+**`files.resolve`** takes `{ workspaceId, tabId, links }`, with 1 to `MAX_FILE_RESOLVE_LINKS` (64) entries of `{ href, source }`. It answers `{ found }` in the same order, one entry per link:
+
+| Entry | Meaning | A reader shows |
+| --- | --- | --- |
+| `{ path, readable: true }` | The file is there and may be read with no grant | A card and its thumbnail |
+| `{ path, readable: false }` | The path cannot be read under standing access | An icon card; a tap asks for a grant |
+| `{ blocked: true }` | An automount, UNC or device path. Decided by the path's shape alone, without touching it, or a symbolic link found to point at one | An icon card; a tap asks for a grant |
+| `null` | Not there, or not in that source | No card; the link in the text stays |
+
+`readable: false` does not only mean outside the standing set. In a local workspace, a path inside the workspace's folder that a symbolic link takes outside it answers `readable: false`; `files.grant` for it is Forbidden, with no `data` and no token.
+
+If the call fails, the reader shows that it could not load. The host only stats files: it neither opens nor reads them, and tells no size or version. An entry a reader cannot parse becomes `null` (`FileResolvedSchema`). A reader checks an absolute path inside the workspace's folder itself (`files.list`, `files.read`), without `files.resolve`.
+
+**`files.grant`** is sent when the user opens a file. It takes `{ workspaceId, tabId, href, source, purpose }`. `purpose` is `open`, `original` or `share`, and the host only logs it. It answers `{ path }` for a file read with no grant. For any other file, it also answers `grant` (`FileGrantTokenSchema`, 22 to 64 base64url characters), `expiresInMs` and `idleMs`. Asking again for the same file from the same device and tab gives back the same live token. An absolute path inside the workspace's folder is read directly, without `files.grant`.
+
+**`files.read`** takes `grant`. A token is bound to the device, its connection (epoch), the workspace, and the cleaned path and its real path. It ends `FILE_GRANT_IDLE_MS` (10 minutes) after its last read, at most `FILE_GRANT_MAX_MS` (60 minutes) after it was given. It also ends when the device leaves or reconnects, the tab closes, or the chat item it came from is rewound or cleared. The same token serves text, images, byte pieces and version checks. `files.list` takes no grant.
+
+Errors:
+
+- **`RpcErrorCode.GrantExpired` (1004)**: the token timed out, or the host dropped it to keep its limit. Within a flow the user started (opening, reading pieces, sharing, paging), a reader asks `files.grant` once more with the same source and reads again. For a `file` source, the parent's token may have expired: then `files.grant` and `files.resolve` answer `GrantExpired`, and the reader renews up the chain of parents. Granting a child keeps its parent's token alive.
+- **Forbidden with `data.grant: "invalid"`**: the token does not match this device, connection, workspace or path, or it was dropped because its source is gone. Do not ask again.
+- **Forbidden with `data.grant: "required"`**: the path needs a grant. The host decides this before it touches the file. An automatic read (a gallery's neighbors, an image in an opened Markdown file) shows a placeholder instead. A flow the user started asks `files.grant` once and reads again.
+- **NotFound with `data.reason: "beyond"`**: a `file` source's link was not found in the parent's first 5 MiB. This differs from a file that is gone.
+
+`FileAccessErrorDataSchema` reads that data and drops values it does not know.
+
+`files.resolve`, `files.grant` and a `files.read` with `grant` are refused (Forbidden) when they carry `from`: grants are people's only. An agent reads outside the workspace's folders with `anywhere` and terminal control, as before. Hosts also stop reading the paths named above when they are automount, UNC or device paths, cleaned (escapes, `..`, slashes) first and followed link by link.
+
+A consent prompt's `change` adds optional `pathKind: "network"`, when the path it would read or write is a UNC or automount path. A reader shows that as the host's prompt does. An unknown value is left out, not the prompt.
+
+A reader before 0.40.0 drops `grant`, `pathKind` and the new answers' fields, and never sees `GrantExpired`. A host before 0.40.0 drops `grant` and answers the new methods MethodNotFound. `FILE_GRANTS_SCHEMA` names the version. A reader still decides by the capability, which a host may turn off.
+
+A device's hello `schema` is the package version it bundles. So a reader that moves to 0.40.0 must ship file grants in the same release. Until a host serves `files.grants`, a reader checks a file is there with `files.read { as: "bytes", length: 1 }`. A zero-length read needs version opt-in, and opting in makes a host hash the whole file. Hosts keep the mentioned set readable for readers before 0.40.0 behind a setting, until readers with grants are out.
+
+`PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`.
@@ -407,6 +493,12 @@ profiles.connection: profiles.list takes `connection` and `profile` and
 answers each profile's connection settings and whether a key is saved,
 never a key. Since 0.38.0.
 
+**`CAPABILITIES`**
+
+files.grants: files.resolve and files.grant, and files.read's `grant`,
+for files outside the workspace's folders that a chat names. Served
+only where files and chat.read are, and only to people. Since 0.40.0.
+
 **`HelloSchema`**
 
 A device introduces itself: to all the room as it joins, and to one that
@@ -505,6 +597,11 @@ The serving device does not let this device do it.
 **`RpcErrorCode.Unavailable`**
 
 The session cannot do it now: a chat with no request waiting, one whose program is gone.
+
+**`RpcErrorCode.GrantExpired`**
+
+A file grant timed out or was dropped to keep the host's limit: ask
+files.grant again, once, in a flow the user started. Since 0.40.0.
 
 #### Sessions
 
@@ -751,6 +848,12 @@ line on what to, and the whole of it when a line does not tell it (a
 command to allow or run, what would be typed, a message or a prompt).
 A body too long to tell whole (the desktop's past 8000 characters)
 comes cut short, and the prompt is not answerable.
+
+**`RemoteConsentSchema.change.pathKind`**
+
+`network` when the path it would read or write is a UNC or automount
+path; left out otherwise, and when a reader does not know the value.
+Since 0.40.0.
 
 **`RemoteConsentSchema.eachTime`**
 
@@ -1046,6 +1149,49 @@ Most bytes one files.read `as: "bytes"` gives: a piece of a file, base64 inside 
 **`FileVersionSchema`**
 
 An opaque files.read source generation, scoped to the workspace and path.
+
+**`FILE_GRANTS_SCHEMA`**
+
+The package version that brought file grants (0.40.0). Readers decide by
+the `files.grants` capability.
+
+**`MAX_FILE_RESOLVE_LINKS`**
+
+Most links one files.resolve takes.
+
+**`FILE_GRANT_IDLE_MS`**
+
+How long a file grant lives after its last read.
+
+**`FILE_GRANT_MAX_MS`**
+
+How long a file grant lives at most.
+
+**`MAX_FILE_SOURCE_PARENT_BYTES`**
+
+How much of a parent file a `file` source's link is looked for in.
+
+**`FileGrantTokenSchema`**
+
+A file grant: opaque, 22 to 64 base64url characters, kept in memory only.
+
+**`FileLinkSourceSchema`**
+
+Where a link came from in the tab's chat, by kind (see Schema 0.40.0).
+
+**`FileGrantPurposeSchema`**
+
+Why a file is opened: open, original or share. The host only logs it.
+
+**`FileResolvedSchema`**
+
+One link's answer in files.resolve: a path and whether it reads with no
+grant, blocked, or null. An entry a reader cannot parse is null.
+
+**`FileAccessErrorDataSchema`**
+
+The data of a file access error: `grant` (invalid, required) or
+`reason` (beyond). Unknown values are left out.
 
 **`MAX_FIND_RESULTS`**
 
@@ -1949,6 +2095,21 @@ Base64; fewer bytes than asked at the end of the file, none past it.
 **`RPC_METHODS."files.read".result.size`**
 
 The whole file's.
+
+**`RPC_METHODS."files.read".params.grant`**
+
+A token from files.grant for this file. Since 0.40.0.
+
+**`RPC_METHODS."files.resolve"`**
+
+Whether the links a chat names are there, resolved by the host: a path
+and whether it reads with no grant, blocked, or null, per link. Stats
+only. Since 0.40.0.
+
+**`RPC_METHODS."files.grant"`**
+
+Opening a link the user tapped: its path, and a token when it needs one.
+Since 0.40.0.
 
 **`RPC_METHODS."files.write.begin"`**
 

@@ -979,7 +979,10 @@
         "failed_other": "{{count}} failed",
         "denied_one": "{{count}} denied",
         "denied_other": "{{count}} denied"
-      }
+      },
+      "output_expand": "View full output",
+      "output_collapse": "Collapse output",
+      "output_failed": "Couldn't load the tool output. Try again."
     },
     "permission": {
       "aria": "Permission request",
@@ -1370,7 +1373,11 @@
       "open_system": "Open in the system browser",
       "open_app_browser": "Open in the app's browser",
       "copy_link": "Copy link",
-      "network_path": "Network paths can't be opened."
+      "network_path": "Network paths can't be opened.",
+      "gone": "That file is no longer in the chat.",
+      "denied": "Reading that file isn't allowed.",
+      "open_failed": "Couldn't open that file. Try again later.",
+      "load_failed": "Couldn't load"
     },
     "run": {
       "kind": "claude -p run",
@@ -1905,6 +1912,31 @@
       "title": "Other computers",
       "moveUp": "Move up",
       "moveDown": "Move down",
+      "computerActions": "Computer actions · {{device}}",
+      "workspaceAdd": {
+        "choose": "Choose this folder",
+        "home": "Home folder",
+        "showHidden": "Show hidden folders",
+        "name": "Workspace name",
+        "listFailed": "Could not open the folder.",
+        "addRefused": "This folder cannot be added from another device.",
+        "addFailed": "Could not add the workspace.",
+        "disabled": "Workspace creation from other devices is unavailable",
+        "added": "Workspace added",
+        "exists": "Workspace already added",
+        "openFiles": "Open files"
+      },
+      "usage": {
+        "title": "Profile usage",
+        "refresh": "Refresh usage",
+        "empty": "No profiles",
+        "notSubscription": "No subscription",
+        "unavailable": "Usage unavailable",
+        "stale": "Last known usage",
+        "checkedAt": "Last known usage · {{time}}",
+        "refreshFailed": "Could not refresh profile usage.",
+        "updateNeeded": "Update the app on {{device}} to see profile usage."
+      },
       "needsSignIn": "Sign in to see your other computers here",
       "connecting": "Connecting…",
       "reconnecting": "Disconnected · Reconnecting",

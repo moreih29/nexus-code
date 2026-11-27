@@ -20,6 +20,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { FileLinkSourceContext } from "../../services/chat/chat-files";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { type Scope, scopesOf } from "../../services/chat/permission-scopes";
@@ -886,7 +887,11 @@ function PlanApproval({
       </div>
       {plan && (
         <div className="app-scrollbar max-h-96 overflow-y-auto rounded-(--radius-control) border border-border px-3 py-2">
-          <ChatMarkdown text={plan} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
+          <FileLinkSourceContext.Provider
+            value={request.toolUseId ? { kind: "tool", toolUseId: request.toolUseId } : null}
+          >
+            <ChatMarkdown text={plan} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
+          </FileLinkSourceContext.Provider>
         </div>
       )}
       {changing ? (

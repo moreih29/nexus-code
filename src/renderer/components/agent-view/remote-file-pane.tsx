@@ -8,20 +8,36 @@ import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { workspacePathParts } from "../../utils/path";
+import { ChatLinksContext } from "../chat/chat-links";
 import { FileLookBody, FileLookControls, useFileLookView } from "../chat/file-look";
+import { heldFileLinks } from "./held-file-links";
 
 export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, path } = file;
   const key = remoteFileKey(file);
   const details = useAgentViewStore((s) => s.remoteFiles.get(key));
-  const { at, before, compareFrom, mode, compare, workspaceRoot = "" } = details ?? {};
+  const {
+    at,
+    before,
+    compareFrom,
+    mode,
+    compare,
+    workspaceRoot = "",
+    deviceName = "",
+    tabId,
+  } = details ?? {};
   const { directory, fileName } = workspacePathParts(path, workspaceRoot);
   const view = useFileLookView(path, { at, before, mode, compare });
   const access = usePeerChatAccess(deviceId);
   const files = useMemo(
-    () => peerChatFiles({ deviceId, workspaceId }, access),
-    [deviceId, workspaceId, access],
+    () => peerChatFiles({ deviceId, workspaceId, ...(tabId ? { tabId } : {}) }, access),
+    [deviceId, workspaceId, tabId, access],
+  );
+  const links = useMemo(
+    () =>
+      heldFileLinks({ deviceId, workspaceId, path }, { deviceName, workspaceRoot, tabId }, files),
+    [deviceId, workspaceId, path, deviceName, workspaceRoot, tabId, files],
   );
   const pane = useRef<HTMLDivElement>(null);
   useEffect(() => registerTabFocusTarget(key, () => pane.current?.focus()), [key]);
@@ -83,14 +99,16 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
       </div>
       <div className="relative min-h-0 flex-1">
         <ChatFilesContext.Provider value={files}>
-          <FileLookBody
-            workspaceId={peerWorkspaceId(deviceId, workspaceId)}
-            path={path}
-            root={workspaceRoot}
-            at={at}
-            before={before}
-            view={view}
-          />
+          <ChatLinksContext.Provider value={links}>
+            <FileLookBody
+              workspaceId={peerWorkspaceId(deviceId, workspaceId)}
+              path={path}
+              root={workspaceRoot}
+              at={at}
+              before={before}
+              view={view}
+            />
+          </ChatLinksContext.Provider>
         </ChatFilesContext.Provider>
       </div>
     </div>

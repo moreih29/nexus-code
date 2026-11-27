@@ -15,6 +15,7 @@ import { validateArgs } from "../../../infra/ipc-router";
 import { type FsIpcErrorResult, fsCallError } from "../../../infra/ipc-router/fs-errors";
 import type { WorkspaceManager } from "../../workspace/manager";
 import type { FsProvider } from "../bridge/provider";
+import { networkLinkOf } from "../link-walk";
 import {
   fileOnRootShare,
   isOutsideGranted,
@@ -150,6 +151,7 @@ export function outsideExistsHandler(
     if (isNetworkOrDevicePath(absolutePath)) return false;
     const path = outsideReadPath(absolutePath, isWindowsLocal(manager, workspaceId));
     if (path === null || isAutoMountPath(path)) return false;
+    if ((await networkLinkOf(path).catch(() => "")) !== null) return false;
     const fs = await manager.getFs(workspaceId);
     const read = await fs.readAbsoluteRange(path, 0, 0).catch(() => null);
     return read !== null && read.kind !== "missing";

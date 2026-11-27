@@ -1,5 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
+import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+
+import { withTestDom } from "../../../../../helpers/test-dom";
 
 mock.module("../../../../../../src/renderer/services/editor", () => ({
   openOrRevealEditor: mock(() => {}),
@@ -65,12 +68,87 @@ describe("MarkdownPreview — disallowed link schemes", () => {
   });
 });
 
-describe("MarkdownPreview — workspace image rewriting", () => {
-  test("relative image src is rewritten to nexus-workspace:// URL", () => {
-    const source = "![logo](./img/logo.png)";
+describe("MarkdownPreview — link data stays off the page", () => {
+  test("no written target or syntax node on an anchor or an image", () => {
+    const source = String.raw`See [a](C:\x\.y.txt), [b](docs/b.md), [r] and ![i](./img/i.png).
+
+[r]: C:\r\.png`;
     const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    expect(html).toContain("nexus-workspace://ws-1/docs/img/logo.png");
-    expect(html).toContain('alt="logo"');
+    expect(html.match(/<a /g)?.length).toBe(3);
+    expect(html).toContain("<img");
+    expect(html).not.toMatch(/data-written-href|datawrittenhref/i);
+    expect(html).not.toMatch(/\snode=/);
+  });
+});
+
+describe("MarkdownPreview — workspace image rewriting", () => {
+  test("relative image src follows the same file across edits and reopens", async () => {
+    await withTestDom(async (host, root) => {
+      let version = "old";
+      let changed: ((event: unknown) => void) | undefined;
+      const reads: unknown[] = [];
+      let metadata = Promise.withResolvers<void>();
+      let pixels = Promise.withResolvers<void>();
+      const decoded: string[] = [];
+      Object.assign(window, {
+        Image: class {
+          src = "";
+          decode() {
+            decoded.push(this.src);
+            return pixels.promise;
+          }
+        },
+        ipc: {
+          call: async (channel: string, method: string, args: unknown) => {
+            reads.push({ channel, method, args });
+            await metadata.promise;
+            return { kind: "ok", base64: "", sizeBytes: 16, mtime: "same", version };
+          },
+          listen: (channel: string, event: string, callback: (value: unknown) => void) => {
+            if (channel === "fs" && event === "changed") changed = callback;
+            return () => {};
+          },
+        },
+      });
+      const source = "![logo](./img/logo.png)";
+      const render = (key: string) =>
+        root.render(<MarkdownPreview key={key} {...BASE_PROPS} source={source} />);
+      const src = () => host.querySelector("img")?.getAttribute("src");
+      const change = () =>
+        changed?.({ workspaceId: "ws-1", changes: [{ relPath: "docs/img/logo.png" }] });
+
+      await act(async () => render("first"));
+      expect(src()).toBeFalsy();
+      await act(async () => metadata.resolve());
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      expect(host.querySelector("img")?.getAttribute("alt")).toBe("logo");
+
+      metadata = Promise.withResolvers<void>();
+      await act(async () => render("second"));
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      await act(async () => metadata.resolve());
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      expect(decoded).toEqual([]);
+
+      version = "new";
+      pixels = Promise.withResolvers<void>();
+      await act(async () => change());
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=old");
+      expect(decoded).toEqual(["nexus-workspace://ws-1/docs/img/logo.png?v=new"]);
+      await act(async () => pixels.resolve());
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=new");
+      metadata = Promise.withResolvers<void>();
+      await act(async () => render("third"));
+      expect(src()).toBe("nexus-workspace://ws-1/docs/img/logo.png?v=new");
+      await act(async () => metadata.resolve());
+      expect(reads).toEqual(
+        Array.from({ length: 4 }, () => ({
+          channel: "fs",
+          method: "readRange",
+          args: { workspaceId: "ws-1", relPath: "docs/img/logo.png", offset: 0, length: 0 },
+        })),
+      );
+    });
   });
 
   test("escape attempt outside workspace renders the image's name in its place", () => {
@@ -150,11 +228,20 @@ describe("MarkdownPreview — YAML frontmatter", () => {
 });
 
 describe("MarkdownPreview — non-ASCII image paths", () => {
-  test("encodes a Korean image name once in the workspace URL", () => {
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={"![plot](이미지.png)"} />,
-    );
-    expect(html).toContain('src="nexus-workspace://ws-1/docs/%EC%9D%B4%EB%AF%B8%EC%A7%80.png"');
-    expect(html).not.toContain("%25EC");
+  test("encodes a Korean image name once in the workspace URL", async () => {
+    await withTestDom(async (host, root) => {
+      Object.assign(window, {
+        ipc: {
+          call: async () => ({ kind: "ok", version: "v1" }),
+          listen: () => () => {},
+        },
+      });
+      await act(async () =>
+        root.render(<MarkdownPreview {...BASE_PROPS} source="![plot](이미지.png)" />),
+      );
+      expect(host.querySelector("img")?.getAttribute("src")).toBe(
+        "nexus-workspace://ws-1/docs/%EC%9D%B4%EB%AF%B8%EC%A7%80.png?v=v1",
+      );
+    });
   });
 });

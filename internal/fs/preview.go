@@ -85,6 +85,9 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 		if p.RelPath != "" {
 			return s.previewWorkspacePath(abs)
 		}
+		if err := refuseNetworkHop(abs); err != nil {
+			return "", err
+		}
 		real, err := filepath.EvalSymlinks(abs)
 		if err == nil && p.ExpectedRealPath != "" && !sameResolvedFile(real, p.ExpectedRealPath) {
 			err = FSError{Code: CodeOutOfWorkspace, Path: abs}

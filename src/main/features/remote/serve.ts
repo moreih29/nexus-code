@@ -77,6 +77,7 @@ import {
   readEvents,
 } from "./serving/chat-details";
 import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common";
+import { serveFileGrant, serveFileResolve } from "./serving/file-links";
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
 import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
 import { ReadBudget } from "./serving/read-budget";
@@ -246,7 +247,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     if (
       (method === "sessions.reorder" ||
         method === "sessions.markSeen" ||
-        method === "system.stats") &&
+        method === "system.stats" ||
+        method === "files.resolve" ||
+        method === "files.grant") &&
       by !== undefined
     ) {
       throw new RpcFailure(RpcErrorCode.Forbidden, `${method} is not taken from agents`);
@@ -548,6 +551,10 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "files.list":
       case "files.read":
         return serveFileRead(s, request, watches, checkCurrent, by);
+      case "files.resolve":
+        return serveFileResolve(s, request, watches.files, watches.fileGrants);
+      case "files.grant":
+        return serveFileGrant(s, request, watches.files, watches.fileGrants);
       case "files.find":
       case "files.search":
         return serveFileSearch(s, request, watches, searching);

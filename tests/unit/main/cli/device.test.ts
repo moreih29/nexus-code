@@ -168,6 +168,17 @@ describe("nexus device list", () => {
 describe("--device", () => {
   const ctx = (app: FakeApp, tabId = SHELL_TAB) => contextFor(app, [], { workspaceId: APP, tabId });
 
+  test("a lookup can start while the room is connecting and use the ready device list", async () => {
+    const app = withDevices();
+    app.peers.inRoom = false;
+    const context = ctx(app);
+    const ready = Promise.withResolvers<CliDevice[]>();
+    context.services.remote.devices = () => ready.promise;
+    const picked = resolveDevice(context, MINI);
+    ready.resolve(app.peers.devices);
+    expect(await picked).toMatchObject({ id: MINI, online: true });
+  });
+
   test("names a computer by id, id prefix or name, case aside; none when left out", async () => {
     const app = withDevices();
     expect(await resolveDevice(ctx(app), undefined)).toBeNull();

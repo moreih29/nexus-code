@@ -11,6 +11,7 @@ import {
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
 import { isAutoMountPath, isNetworkOrDevicePath } from "../../../shared/fs/outside-url";
+import { networkLinkOf } from "../fs/link-walk";
 import { RpcFailure } from "./room";
 
 const run = promisify(execFile);
@@ -40,6 +41,7 @@ export async function listFolders(
   }
   const dir = resolve(asked ?? home);
   if (asked !== undefined) refuseListedNetworkPath(asked, dir, system.platform);
+  if (await linksToNetwork(dir)) throw networkPathRefused();
   let read: Dirent[];
   try {
     read = await readdir(dir, { withFileTypes: true });
@@ -56,7 +58,9 @@ export async function listFolders(
     if (!hidden && (entry.name.startsWith(".") || hiddenHere.has(entry.name))) continue;
     if (
       entry.isDirectory() ||
-      (entry.isSymbolicLink() && (await isFolder(join(dir, entry.name))))
+      (entry.isSymbolicLink() &&
+        !(await linksToNetwork(join(dir, entry.name))) &&
+        (await isFolder(join(dir, entry.name))))
     ) {
       names.push(entry.name);
     }
@@ -82,6 +86,7 @@ export async function folderToAdd(
   if (!isAbsolute(asked)) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "the path is to be absolute");
   }
+  if (await linksToNetwork(resolve(asked))) throw networkPathRefused();
   let dir: string;
   let isDir: boolean;
   try {
@@ -201,6 +206,13 @@ export function refusedFolder(
   if (POSIX_HOLDERS.some((folder) => at === key(folder)))
     return "a folder that holds others' files";
   return undefined;
+}
+
+async function linksToNetwork(target: string): Promise<boolean> {
+  return networkLinkOf(target).then(
+    (hop) => hop !== null,
+    () => true,
+  );
 }
 
 async function isFolder(target: string): Promise<boolean> {

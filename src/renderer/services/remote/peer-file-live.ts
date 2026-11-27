@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { type PeerWorkspace, peerOf } from "../../../shared/fs/peer-url";
 import type { ToolCall } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
+import { lastImageVersion, rememberImageVersion } from "../editor/preview/image-version-cache";
+import { refreshPeerPictures } from "./peer-chat-media";
 import {
   type PeerText,
   probePeerVersion,
@@ -15,13 +17,14 @@ export interface PeerFileSnapshot {
   readonly text: PeerText | null;
   readonly revision: number;
   readonly version?: string;
+  readonly imageKey?: string;
 }
 
 interface Entry {
   readonly key: string;
   readonly workspaceId: string;
   readonly path: string;
-  readonly mode: "text" | "workspace-text" | "version";
+  readonly mode: "text" | "workspace-text" | "version" | "image";
   readonly peer: PeerWorkspace;
   readonly listeners: Set<() => void>;
   snapshot: PeerFileSnapshot | null;
@@ -32,6 +35,7 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>();
+let nextLegacyImage = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 let removeWindowListeners: (() => void) | null = null;
 
@@ -58,7 +62,22 @@ function publish(entry: Entry, text: PeerText, version: string | undefined): voi
 async function loadVersion(entry: Entry, again: boolean): Promise<void> {
   const { signal } = entry.abort;
   const now = await probePeerVersion(entry.peer, entry.path, signal).catch(() => null);
-  if (signal.aborted || now === null) return;
+  if (signal.aborted || (now === null && (entry.mode !== "image" || entry.snapshot))) return;
+  if (entry.mode === "image") {
+    if (now && entry.snapshot?.version === now) return;
+    const imageKey = now ?? `legacy-${++nextLegacyImage}`;
+    rememberImageVersion(entry.key, imageKey);
+    entry.version = now ?? undefined;
+    entry.snapshot = {
+      text: null,
+      revision: (entry.snapshot?.revision ?? 0) + 1,
+      version: now ?? undefined,
+      imageKey,
+    };
+    for (const listener of [...entry.listeners]) listener();
+    return;
+  }
+  if (now === null) return;
   const was = entry.version;
   entry.version = now;
   const moved = again && (now === undefined || now !== was);
@@ -69,7 +88,7 @@ async function loadVersion(entry: Entry, again: boolean): Promise<void> {
 }
 
 async function load(entry: Entry, probe: boolean): Promise<void> {
-  if (entry.mode === "version") return loadVersion(entry, probe);
+  if (entry.mode === "version" || entry.mode === "image") return loadVersion(entry, probe);
   const { signal } = entry.abort;
   if (probe && entry.version !== undefined) {
     const now = await probePeerVersion(entry.peer, entry.path, signal).catch(() => null);
@@ -167,6 +186,8 @@ export function watchPeerFile(
     entries.set(key, entry);
     start();
     refresh(entry, false);
+  } else if (mode === "image" && !entry.flight) {
+    refresh(entry, true);
   }
   const mine = entry;
   mine.listeners.add(listener);
@@ -281,6 +302,22 @@ export function usePeerFileRevision(
   return useSnapshot(workspaceId, path, "version", enabled, connection)?.revision ?? 0;
 }
 
+export function usePeerImageVersion(
+  workspaceId: string,
+  path: string,
+  enabled: boolean,
+  connection: number,
+): string | undefined {
+  const key = keyOf(workspaceId, path, "image", connection);
+  const snapshot = useSnapshot(workspaceId, path, "image", enabled, connection);
+  const version = snapshot?.imageKey;
+  const [last, setLast] = useState<{ key: string; version: string }>();
+  if (version !== undefined && (last?.key !== key || last.version !== version)) {
+    setLast({ key, version });
+  }
+  return version ?? (last?.key === key ? last.version : lastImageVersion(key));
+}
+
 function changeMarks(
   changed: readonly { path: string; added?: number; removed?: number; created?: boolean }[],
   tools: Record<string, ToolCall>,
@@ -308,6 +345,9 @@ export function usePeerChatFileChanges(
     last.current = { workspaceId, marks };
     if (!was) return;
     const moved = [...marks].filter(([path, mark]) => was.get(path) !== mark).map(([path]) => path);
-    if (moved.length > 0) refreshPeerFiles(workspaceId, moved);
+    if (moved.length === 0) return;
+    refreshPeerFiles(workspaceId, moved);
+    const peer = peerOf(workspaceId);
+    if (peer) refreshPeerPictures(peer, (path) => moved.some((changed) => sameFile(path, changed)));
   }, [workspaceId, changed, tools]);
 }

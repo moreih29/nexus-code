@@ -8,11 +8,14 @@ import {
   MAX_BUG_REPORT_DESCRIPTION,
   MIN_BUG_REPORT_DESCRIPTION,
 } from "../../../../../packages/remote-protocol/src/bug-report";
-import type { RemoteAccountState } from "../../../../shared/remote/account";
+import { type RemoteAccountState, remoteAccountKey } from "../../../../shared/remote/account";
 import {
   bugReportFits,
   bugReportLength,
   bugReportLocale,
+  type BugReportFields as DraftFields,
+  EMPTY_BUG_REPORT_FIELDS,
+  MAX_BUG_REPORT_DRAFT_LENGTH,
 } from "../../../../shared/remote/bug-report";
 import { siteUrl } from "../../../../shared/site";
 import { ipcCallResult } from "../../../ipc/client";
@@ -23,6 +26,7 @@ import {
   sendBugReport,
 } from "../../../services/remote/bug-report";
 import { Button } from "../../ui/button";
+import { showToast } from "../../ui/toast";
 import { ToggleChevron } from "../../ui/toggle-chevron";
 import { SettingsGroup, SettingsSwitch } from "../section";
 
@@ -39,7 +43,8 @@ export function BugReportSection({ account }: { account: RemoteAccountState | nu
       </SettingsGroup>
     );
   }
-  if (account.status !== "signed-in") {
+  const owner = remoteAccountKey(account);
+  if (account.status !== "signed-in" || owner === null) {
     return (
       <SettingsGroup title={t("about.bugReport.title")}>
         <SupportLink />
@@ -48,7 +53,7 @@ export function BugReportSection({ account }: { account: RemoteAccountState | nu
   }
   return (
     <SettingsGroup title={t("about.bugReport.title")} description={t("about.bugReport.notSent")}>
-      <BugReportForm email={account.user.email} />
+      <BugReportForm key={owner} owner={owner} email={account.user.email} />
     </SettingsGroup>
   );
 }
@@ -72,16 +77,43 @@ function SupportLink() {
   );
 }
 
-function BugReportForm({ email }: { email: string }) {
+function BugReportForm({ owner, email }: { owner: string; email: string }) {
   const { i18n } = useTranslation("settings");
   const locale = bugReportLocale(i18n.language);
-  const [description, setDescription] = useState("");
-  const [contactOk, setContactOk] = useState(false);
-  const [includeErrors, setIncludeErrors] = useState(true);
+  const [draft, setDraft] = useState<DraftFields | null>(null);
+  const fields = draft ?? EMPTY_BUG_REPORT_FIELDS;
+  const { description, contactOk, includeErrors } = fields;
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState<ShownBugReportContext | null>(null);
   const [sending, setSending] = useState(false);
   const latest = useRef(0);
+
+  const draftError = useCallback(
+    () => showToast({ kind: "error", message: i18n.t("settings:about.bugReport.draftError") }),
+    [i18n],
+  );
+  useEffect(() => {
+    let active = true;
+    void ipcCallResult("remote", "bugReportDraft", { owner })
+      .catch(() => null)
+      .then((result) => {
+        if (!active) return;
+        if (!result?.ok) draftError();
+        setDraft((result?.ok ? result.value : null) ?? EMPTY_BUG_REPORT_FIELDS);
+      });
+    return () => {
+      active = false;
+    };
+  }, [owner, draftError]);
+
+  const change = (next: DraftFields) => {
+    setDraft(next);
+    void ipcCallResult("remote", "saveBugReportDraft", { owner, fields: next })
+      .catch(() => null)
+      .then((result) => {
+        if (!result?.ok) draftError();
+      });
+  };
 
   const load = useCallback(() => {
     const request = ++latest.current;
@@ -106,12 +138,9 @@ function BugReportForm({ email }: { email: string }) {
   const send = async () => {
     setSending(true);
     try {
-      const sent = await sendBugReport(
-        draftAsShown({ description, contactOk, includeErrors, locale }, shown),
-      );
+      const sent = await sendBugReport(owner, draftAsShown({ ...fields, locale }, shown));
       if (sent) {
-        setDescription("");
-        setContactOk(false);
+        setDraft(EMPTY_BUG_REPORT_FIELDS);
         setOpen(false);
         load();
       }
@@ -129,9 +158,18 @@ function BugReportForm({ email }: { email: string }) {
       open={open}
       context={shown?.context ?? null}
       sending={sending}
-      onDescription={setDescription}
-      onContactOk={setContactOk}
-      onIncludeErrors={setIncludeErrors}
+      draftLoading={draft === null}
+      onDiscard={
+        description || contactOk || !includeErrors
+          ? () => {
+              change(EMPTY_BUG_REPORT_FIELDS);
+              setOpen(false);
+            }
+          : undefined
+      }
+      onDescription={(description) => change({ ...fields, description })}
+      onContactOk={(contactOk) => change({ ...fields, contactOk })}
+      onIncludeErrors={(includeErrors) => change({ ...fields, includeErrors })}
       onToggle={toggle}
       onSend={() => void send()}
     />
@@ -146,6 +184,8 @@ export interface BugReportFieldsProps {
   open: boolean;
   context: BugReportContext | null;
   sending: boolean;
+  draftLoading?: boolean;
+  onDiscard?: () => void;
   onDescription(text: string): void;
   onContactOk(next: boolean): void;
   onIncludeErrors(next: boolean): void;
@@ -160,6 +200,7 @@ export function BugReportFields(props: BugReportFieldsProps) {
   const length = bugReportLength(props.description);
   const fits = bugReportFits(props.description);
   const tooLong = length > MAX_BUG_REPORT_DESCRIPTION;
+  const locked = props.sending || props.draftLoading;
   return (
     <div className="flex flex-col gap-3.5" data-testid="bug-report-form">
       <div className="flex min-w-0 flex-col gap-1">
@@ -169,7 +210,8 @@ export function BugReportFields(props: BugReportFieldsProps) {
           aria-invalid={tooLong || undefined}
           placeholder={t("about.bugReport.placeholder")}
           value={props.description}
-          readOnly={props.sending}
+          readOnly={locked}
+          maxLength={MAX_BUG_REPORT_DRAFT_LENGTH}
           onChange={(event) => props.onDescription(event.currentTarget.value)}
           rows={5}
           className={cn(
@@ -194,12 +236,14 @@ export function BugReportFields(props: BugReportFieldsProps) {
         label={t("about.bugReport.includeErrors")}
         description={t("about.bugReport.includeErrorsDescription")}
         checked={props.includeErrors}
+        disabled={locked}
         onChange={props.onIncludeErrors}
       />
       <SettingsSwitch
         label={t("about.bugReport.contact")}
         description={props.email}
         checked={props.contactOk}
+        disabled={locked}
         onChange={props.onContactOk}
       />
       <div className="flex min-w-0 flex-col gap-2">
@@ -222,10 +266,21 @@ export function BugReportFields(props: BugReportFieldsProps) {
           </div>
         )}
       </div>
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {props.onDiscard && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={locked}
+            onClick={props.onDiscard}
+            data-testid="bug-report-discard"
+          >
+            {t("about.bugReport.discardDraft")}
+          </Button>
+        )}
         <Button
           size="sm"
-          disabled={!fits || props.sending}
+          disabled={!fits || locked}
           onClick={props.onSend}
           data-testid="bug-report-send"
         >

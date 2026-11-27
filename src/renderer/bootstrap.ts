@@ -1,4 +1,6 @@
 import { EMPTY_INSTRUCTIONS } from "../shared/chat/instructions";
+import { logLinkTextStops } from "../shared/chat/link-text";
+import { limitLog } from "../shared/log/limit";
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
@@ -70,6 +72,9 @@ function installGlobalFileDropGuard(): void {
 }
 
 async function bootstrapAppState(): Promise<void> {
+  const linkTextStops = limitLog(createLogger("link-text"));
+  logLinkTextStops((line) => linkTextStops.log("warn", "stop", line));
+
   initializeWorkspaceLifecycle();
 
   installGlobalFileDropGuard();

@@ -7,12 +7,18 @@ export function useRemotePicture(
   access: ChatMediaAccess | null | undefined,
   key: string | null,
   watch: (show: PictureListener) => (() => void) | undefined,
+  known?: () => ImageBlock | undefined,
 ): { image: ImageBlock | null; failed: boolean } {
-  const [got, setGot] = useState({ access, key, image: null as ImageBlock | null, failed: false });
+  const [got, setGot] = useState(() => ({
+    access,
+    key,
+    image: known?.() ?? null,
+    failed: false,
+  }));
   let shown = got;
   if (got.access !== access || got.key !== key) {
     const keep = access && access.scope === got.access?.scope && key === got.key;
-    shown = { access, key, image: keep ? got.image : null, failed: false };
+    shown = { access, key, image: known?.() ?? (keep ? got.image : null), failed: false };
     setGot(shown);
   }
 

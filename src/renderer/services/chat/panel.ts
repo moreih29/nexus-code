@@ -1,7 +1,14 @@
+import {
+  linkDestination,
+  linkHrefOf,
+  type WrittenLink,
+  writtenLinksIn,
+} from "../../../shared/chat/link-text";
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { isAutoMountPath, isNetworkLink } from "../../../shared/fs/outside-url";
 import { isUnder, isWindowsPath, slashWindowsPath } from "../../../shared/fs/relative-path";
+import type { FileLinkSource, LinkedFile } from "./chat-files";
 import { attachmentTarget, isFolder, splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
@@ -382,16 +389,53 @@ export interface ResultEntry {
   created: boolean;
 }
 
+const resultSources = new WeakMap<ResultEntry, FileLinkSource>();
+
+export function resultSource(result: ResultEntry): FileLinkSource | undefined {
+  return resultSources.get(result);
+}
+
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
-const LINK_RE = /\]\((<[^>\n]+>|[^)\s]+)\)/g;
-const IMAGE_RE = /!\[[^\]]*\]\((<[^>\n]+>|[^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
 const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
 
-function linkTarget(match: RegExpMatchArray): string {
-  const target = match[1];
-  return target.startsWith("<") && target.endsWith(">") ? target.slice(1, -1) : target;
+const resultHrefs = new WeakMap<ResultEntry, string>();
+
+export function resultHref(result: ResultEntry): string {
+  return resultHrefs.get(result) ?? result.target;
+}
+
+function linkTarget(link: WrittenLink): string {
+  return linkDestination(link.written);
+}
+
+const writtenLinkCache = new Map<string, readonly Readonly<WrittenLink>[]>();
+const WRITTEN_LINK_CACHE_SIZE = 8;
+
+function cachedWrittenLinksIn(text: string): readonly Readonly<WrittenLink>[] {
+  const cached = writtenLinkCache.get(text);
+  if (cached) return cached;
+  const links = writtenLinksIn(text);
+  if (writtenLinkCache.size >= WRITTEN_LINK_CACHE_SIZE) {
+    const oldest = writtenLinkCache.keys().next();
+    if (!oldest.done) writtenLinkCache.delete(oldest.value);
+  }
+  writtenLinkCache.set(text, links);
+  return links;
+}
+
+function firstOfEachTarget(links: readonly WrittenLink[]): WrittenLink[] {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    if (seen.has(link.written)) return false;
+    seen.add(link.written);
+    return true;
+  });
+}
+
+function writtenImagesIn(text: string): string[] {
+  return firstOfEachTarget(cachedWrittenLinksIn(text).filter((link) => link.image)).map(linkTarget);
 }
 
 function looksLikePath(text: string): boolean {
@@ -454,9 +498,17 @@ export function resultsOf(
 ): ResultEntry[] {
   const results: ResultEntry[] = [];
   const byTarget = new Map<string, ResultEntry>();
-  const add = (kind: ResultEntry["kind"], target: string, created = false) => {
+  const add = (
+    kind: ResultEntry["kind"],
+    target: string,
+    source: FileLinkSource,
+    created = false,
+    href?: string,
+  ) => {
     if (byTarget.has(target)) return;
     const entry: ResultEntry = { kind, target, created };
+    resultSources.set(entry, source);
+    if (href !== undefined) resultHrefs.set(entry, href);
     byTarget.set(target, entry);
     results.push(entry);
   };
@@ -466,24 +518,27 @@ export function resultsOf(
   };
   for (const tool of Object.values(tools)) {
     if (tool.status !== "done") continue;
-    for (const file of sentFilesOf(tool)) add("file", file);
+    const called: FileLinkSource = { kind: "tool", toolUseId: tool.id };
+    for (const file of sentFilesOf(tool)) add("file", file, called);
     if (tool.name !== "Write") continue;
     const path = str(rec(tool.input)?.file_path);
-    if (path && rec(tool.result?.structured)?.type === "create") add("file", path, true);
+    if (path && rec(tool.result?.structured)?.type === "create") add("file", path, called, true);
   }
   for (const item of items) {
     if (item.kind !== "assistant") continue;
+    const answer: FileLinkSource = { kind: "answer", itemKey: item.key };
     for (const block of item.blocks) {
       if (block.type !== "text") continue;
-      for (const match of block.text.matchAll(LINK_RE)) {
-        const target = linkTarget(match);
-        if (/^https?:\/\//.test(target)) add("url", target);
-        else if (looksLikePath(target)) add("file", target);
+      for (const link of firstOfEachTarget(cachedWrittenLinksIn(block.text))) {
+        const target = linkTarget(link);
+        if (/^https?:\/\//.test(target)) add("url", target, answer);
+        else if (looksLikePath(target))
+          add("file", target, answer, false, linkHrefOf(link.written));
       }
-      for (const match of block.text.matchAll(URL_RE)) add("url", match[0]);
+      for (const match of block.text.matchAll(URL_RE)) add("url", match[0], answer);
       for (const match of block.text.matchAll(CODE_RE)) {
         const text = match[1];
-        if (looksLikePath(text) && tookIt(text)) add("file", text);
+        if (looksLikePath(text) && tookIt(text)) add("file", text, answer);
       }
     }
   }
@@ -502,7 +557,14 @@ export function distinctResults(
     const key = path ? pathKey(path) : undefined;
     const at = key ? byPath.get(key) : undefined;
     if (at !== undefined) {
-      if (result.created && !out[at].created) out[at] = { ...out[at], created: true };
+      if (result.created && !out[at].created) {
+        const kept = out[at];
+        out[at] = { ...kept, created: true };
+        const source = resultSources.get(kept);
+        if (source) resultSources.set(out[at], source);
+        const href = resultHrefs.get(kept);
+        if (href !== undefined) resultHrefs.set(out[at], href);
+      }
       continue;
     }
     if (key) byPath.set(key, out.length);
@@ -622,10 +684,10 @@ export function imagesOf(
 
 function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
   const named: { at: number; path: string }[] = [];
-  for (const match of text.matchAll(LINK_RE)) {
-    const target = linkTarget(match);
+  for (const link of firstOfEachTarget(cachedWrittenLinksIn(text))) {
+    const target = linkTarget(link);
     if (!/^https?:\/\//.test(target) && looksLikePath(target)) {
-      named.push({ at: match.index, path: target });
+      named.push({ at: link.at, path: target });
     }
   }
   for (const match of text.matchAll(CODE_RE)) {
@@ -641,7 +703,7 @@ function placedImages(
   cwd: string,
 ): string[] {
   let named: string[] = [];
-  if (block.type === "text") named = [...block.text.matchAll(IMAGE_RE)].map(linkTarget);
+  if (block.type === "text") named = writtenImagesIn(block.text);
   else if (block.type === "tool" && tools[block.toolUseId]?.status === "done") {
     named = sentFilesOf(tools[block.toolUseId]);
   }
@@ -691,6 +753,12 @@ export interface AnswerExtras {
   images: GivenImage[];
 }
 
+const answerLinkMaps = new WeakMap<AnswerExtras, Readonly<Record<string, LinkedFile>>>();
+
+export function answerLinks(extras: AnswerExtras): Readonly<Record<string, LinkedFile>> {
+  return answerLinkMaps.get(extras) ?? {};
+}
+
 export const MAX_ANSWER_FILES = 8;
 export const MAX_ANSWER_IMAGES = 4;
 
@@ -710,6 +778,8 @@ export function answerExtras(
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
     if (!answer) return;
     const named: string[] = [];
+    const sources = new Map<string, FileLinkSource>();
+    const hrefs = new Map<string, string>();
     const given: (GivenImage & { from?: string; call: string })[] = [];
     const shown = new Set<string>();
     const showHere = (target: string) => {
@@ -720,7 +790,7 @@ export function answerExtras(
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
         if (block.type === "text") {
-          for (const match of block.text.matchAll(IMAGE_RE)) showHere(linkTarget(match));
+          for (const target of writtenImagesIn(block.text)) showHere(target);
         }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
         if (!tool) continue;
@@ -731,20 +801,30 @@ export function answerExtras(
         for (const image of tool.result?.images ?? [])
           given.push({ image, from, file, call: tool.id });
         if (tool.name === "Write" && tool.status === "done" && path) {
-          if (rec(tool.result?.structured)?.type === "create") named.push(path);
+          if (rec(tool.result?.structured)?.type === "create") {
+            named.push(path);
+            if (!sources.has(path)) sources.set(path, { kind: "tool", toolUseId: tool.id });
+          }
         }
       }
     }
     for (const result of resultsOf(turn, {}, cwd, touched)) {
-      if (result.kind === "file") named.push(result.target);
+      if (result.kind !== "file") continue;
+      named.push(result.target);
+      const source = resultSources.get(result);
+      if (source && !sources.has(result.target)) sources.set(result.target, source);
+      if (!hrefs.has(result.target)) hrefs.set(result.target, resultHref(result));
     }
     const files: string[] = [];
     const elsewhere: Record<string, string[]> = {};
+    const links: Record<string, LinkedFile> = {};
     for (const target of named) {
       const [path, ...others] = linkPlaces(target, places).map((place) => place.path);
       if (!path || shown.has(path) || files.includes(path)) continue;
       files.push(path);
       if (others.length > 0) elsewhere[path] = others;
+      const source = sources.get(target);
+      if (source) links[path] = { href: hrefs.get(target) ?? target, source };
     }
     const lastRead = new Map<string, string>();
     for (const { from, call } of given) if (from) lastRead.set(from, call);
@@ -756,11 +836,13 @@ export function answerExtras(
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
-      out.set(answer, {
+      const extras: AnswerExtras = {
         files,
         ...(Object.keys(elsewhere).length > 0 ? { elsewhere } : {}),
         images: images.slice(0, MAX_ANSWER_IMAGES),
-      });
+      };
+      answerLinkMaps.set(extras, links);
+      out.set(answer, extras);
     }
   };
   for (const item of items) {

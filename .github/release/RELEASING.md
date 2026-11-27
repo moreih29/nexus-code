@@ -2,6 +2,7 @@
 
 릴리스는 항상 `develop`에서 준비해 `main`으로 승격한 뒤, GitHub Release를 발행해
 자동 빌드를 트리거하는 순서로 진행한다. 아래 0 → 5 단계를 그대로 따른다.
+develop 의 나머지 변경 없이 급한 수정만 낼 때는 6 의 핫픽스 절차를 따른다.
 
 ## 0. 브랜치 모델 & 버전 정책
 
@@ -162,6 +163,45 @@ Store 에는 정식 릴리스만 낸다 (pre-release 는 내지 않는다). Stor
       MSSTORE=<msstore.exe 경로> bun run scripts/store-submit.ts --package-dir store-package
       ```
     - 그것도 안 되면 Partner Center → 앱 → **업데이트** 에서 손으로 낸다. 패키지를 받은 `.appx` 로 바꾸고 (이전 버전 패키지는 뺀다), 한국어 · 영어의 **새 기능** 을 바꾼다. 칸마다 넣을 값은 [`STORE.md`](STORE.md) 에 있다.
+
+---
+
+## 6. 핫픽스 (main 에서 분기)
+
+develop 에 릴리스 QA 를 거치지 않은 변경이 쌓여 있는데 급한 수정만 내야 할 때 쓴다 (예: 0.46.2 보안 수정). develop 에서 승격하면 그 변경까지 같이 나가므로, 직전 릴리스의 main 에서 분기한다.
+
+1. **develop 에 수정 PR**
+   수정은 평소처럼 develop 으로 PR 을 내고, 리뷰와 CI 를 거쳐 머지한다. 이 PR 의 커밋이 핫픽스에 들어갈 원본이다.
+
+2. **main 에서 분기**
+   ```bash
+   git fetch origin
+   git switch -c hotfix/X.Y.Z origin/main
+   ```
+
+3. **cherry-pick**
+   수정 PR 의 커밋을 순서대로 얹는다. `-x` 로 원본 sha 를 남긴다.
+   ```bash
+   git cherry-pick -x <PR base>..<PR head>
+   ```
+   `git diff <직전 태그> HEAD` 가 수정 PR 의 diff 와 같은지 확인한다. 충돌이 나면 수정이 develop 에만 있는 변경에 기대고 있다는 뜻이므로, 멈추고 원인을 본다.
+
+4. **Version bump**
+   1 의 2 · 3 과 같다. patch 를 올리고 `build/store-release-notes.json` 의 버전과 문구도 바꾼다. 커밋 메시지는 `chore: bump version to X.Y.Z`.
+
+5. **PR: `hotfix/X.Y.Z → main`**
+   세 OS 의 CI 가 모두 통과하면 머지한다. 수정 PR 이 CI 를 고치는 커밋을 더 받았으면 그 커밋도 같이 얹는다.
+
+6. **Release 발행과 검증**
+   3 · 4 · 5 와 같다. Target 은 `main` 이다.
+
+7. **역병합 PR: `main → develop`**
+   배포 뒤 main 을 develop 에 합쳐 버전과 Store 문구를 맞춘다. cherry-pick 한 커밋은 develop 의 원본과 내용이 같아서 보통 충돌 없이 합쳐진다.
+   ```bash
+   git switch -c merge/main-X.Y.Z origin/develop
+   git merge --no-ff origin/main
+   ```
+   develop 으로 PR 을 내고, CI 가 통과하면 merge commit 으로 머지한다 (squash 하지 않는다). 다음 develop 릴리스는 이 버전보다 높게 올린다.
 
 ---
 

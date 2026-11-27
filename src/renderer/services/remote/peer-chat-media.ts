@@ -1,9 +1,16 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { MAX_FILE_RESOLVE_LINKS } from "../../../../packages/remote-protocol/src/rpc";
+import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import type { RemoteAccountState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import { createKeyedListenerBus, createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
-import type { ChatFiles } from "../chat/chat-files";
+import {
+  type ChatFiles,
+  type LinkedFile,
+  type LinkFound,
+  LinkGrantError,
+} from "../chat/chat-files";
 import {
   type ChatMediaAccess,
   type ImageBlock,
@@ -18,6 +25,7 @@ interface ReadAccess {
   cacheId: number;
   scopeId: number;
   signal: AbortSignal;
+  grants: boolean;
 }
 
 interface PeerAccess {
@@ -67,6 +75,12 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
 
   const scoped = (access: ReadAccess, key: string) => `${access.id}:${key}`;
   return {
+    peek(access: ReadAccess | null, key: string) {
+      if (!access || access.signal.aborted) return undefined;
+      const scope = limits?.scope?.(access) ?? access.cacheId;
+      const item = cached.get(`${scope}:${key}`);
+      return item && item.until > Date.now() ? item.value : undefined;
+    },
     subscribe(access: ReadAccess | null, key: string, listener: (value: T | null) => void) {
       return access && !access.signal.aborted
         ? results.subscribe(scoped(access, key), listener)
@@ -89,7 +103,8 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
       access: ReadAccess | null,
       key: string,
       load: (signal: AbortSignal, known: T | undefined) => Promise<T>,
-    ) {
+      recheckPending = false,
+    ): Promise<T> {
       if (!access || access.signal.aborted) throw new Error("peer connection unavailable");
       const slot = scoped(access, key);
       const scope = limits?.scope?.(access) ?? access.cacheId;
@@ -99,7 +114,11 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
         if (value !== undefined) return value;
       }
       const existing = pending.get(slot);
-      if (existing) return existing;
+      if (existing) {
+        if (!recheckPending) return existing;
+        await existing.catch(() => {});
+        return this.read(access, key, load);
+      }
       if (waiting.size >= MAX_WAITING) throw new Error("too many peer chat reads");
 
       const run = async () => {
@@ -189,7 +208,26 @@ const folderNames = peerReads<FolderNames>({
   },
 });
 
-const pictures = peerReads<ImageBlock>(undefined, 8);
+const pictures = peerReads<ImageBlock>(
+  {
+    entries: 128,
+    bytes: 16 * 1024 * 1024,
+    revalidate: true,
+    size: ({ data, mediaType }) => 2 * (data.length + mediaType.length),
+  },
+  8,
+);
+
+const watchedPictures = new Map<string, Set<{ path: string; refresh(): void }>>();
+
+const pictureWorkspace = ({ deviceId, workspaceId }: PeerWorkspace) =>
+  JSON.stringify([deviceId, workspaceId]);
+
+export function refreshPeerPictures(peer: PeerWorkspace, matches: (path: string) => boolean): void {
+  for (const picture of watchedPictures.get(pictureWorkspace(peer)) ?? []) {
+    if (matches(picture.path)) picture.refresh();
+  }
+}
 
 const presence = peerReads<boolean>({
   entries: 512,
@@ -198,9 +236,66 @@ const presence = peerReads<boolean>({
   size: () => 64,
 });
 
+const resolved = peerReads<LinkFound>(
+  {
+    entries: 1024,
+    bytes: 512 * 1024,
+    freshMs: 30_000,
+    size: (found) => 64 + 2 * (found && "path" in found ? found.path.length : 0),
+  },
+  MAX_ACTIVE * 4,
+);
+
+const FILE_GRANTS = "files.grants";
+
+interface Asked {
+  link: LinkedFile;
+  resolve(found: LinkFound): void;
+  reject(reason: unknown): void;
+}
+
+function linkBatches(
+  where: { deviceId: string; workspaceId: string; tabId: string },
+  signal: AbortSignal,
+) {
+  let queue: Asked[] = [];
+  const flush = () => {
+    const asked = queue;
+    queue = [];
+    for (let at = 0; at < asked.length; at += MAX_FILE_RESOLVE_LINKS) {
+      const part = asked.slice(at, at + MAX_FILE_RESOLVE_LINKS);
+      void ipcCallResult(
+        "remote",
+        "peerFilesResolve",
+        { ...where, links: part.map(({ link }) => link) },
+        { signal },
+      ).then(
+        (result) => {
+          if (!result.ok) {
+            const failure = new Error(result.message);
+            for (const one of part) one.reject(failure);
+            return;
+          }
+          part.forEach((one, i) => {
+            one.resolve(result.value.found[i] ?? null);
+          });
+        },
+        (error: unknown) => {
+          for (const one of part) one.reject(error);
+        },
+      );
+    }
+  };
+  return (link: LinkedFile) =>
+    new Promise<LinkFound>((resolve, reject) => {
+      if (queue.length === 0) queueMicrotask(flush);
+      queue.push({ link, resolve, reject });
+    });
+}
+
 function mediaAccess(
   access: PeerAccess | null,
-  target: readonly string[],
+  target: readonly (string | null)[],
   read: ReadAccess | null,
 ): ChatMediaAccess | null {
   return (
@@ -212,11 +307,11 @@ function mediaAccess(
 }
 
 export function peerImageLoader(
-  target: { deviceId: string; workspaceId: string; tabId: string },
+  target: { deviceId: string; workspaceId: string; tabId: string; runId?: string },
   access: PeerAccess | null,
   visible = true,
 ): ImageLoader {
-  const site = [target.deviceId, target.workspaceId, target.tabId];
+  const site = [target.deviceId, target.workspaceId, target.tabId, target.runId ?? null];
   const current = visible ? (access?.read ?? null) : null;
   const key = (ref: RemoteImageRef) => JSON.stringify([...site, IMAGE_EDGE, remoteImageKey(ref)]);
   return Object.assign(
@@ -269,13 +364,15 @@ function splitPath(path: string): { dir: string; name: string } | null {
 }
 
 export function peerChatFiles(
-  { deviceId, workspaceId }: { deviceId: string; workspaceId: string },
+  { deviceId, workspaceId, tabId }: { deviceId: string; workspaceId: string; tabId?: string },
   access: PeerAccess | null,
   visible = true,
 ): ChatFiles {
   const where = { deviceId, workspaceId };
   const current = visible ? (access?.read ?? null) : null;
   const key = (path: string) => JSON.stringify([deviceId, workspaceId, path]);
+  const grants =
+    current?.grants === true && tabId !== undefined ? grantsFor({ ...where, tabId }, current) : {};
   const namesIn = (path: string) =>
     folderNames.read(current, key(path), async (signal) => {
       const result = await ipcCallResult("remote", "peerFilesList", { ...where, path }, { signal });
@@ -290,13 +387,31 @@ export function peerChatFiles(
       const result = await ipcCallResult(
         "remote",
         "peerFilesRead",
-        { ...where, path, as: "bytes", length: 0, versioned: true },
+        { ...where, path, as: "bytes", length: 1, probe: true },
         { signal },
       );
       if (result.ok) return result.value.kind === "bytes";
       if (result.kind === "not-found") return false;
       throw new Error(result.message);
     });
+  const picture = (path: string, recheckPending = false) =>
+    pictures.read(
+      current,
+      key(path),
+      async (signal, known) => {
+        const result = await ipcCallResult(
+          "remote",
+          "peerFilesRead",
+          { ...where, path },
+          { signal },
+        );
+        if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
+        if (result.value.kind !== "image") throw new Error("not an image");
+        const { data, mediaType } = result.value;
+        return known?.data === data && known.mediaType === mediaType ? known : { data, mediaType };
+      },
+      recheckPending,
+    );
   return {
     access: mediaAccess(access, [deviceId, workspaceId], current),
     epoch: current?.id ?? null,
@@ -347,22 +462,53 @@ export function peerChatFiles(
       }
       return current.signal.aborted ? new Set() : missing;
     },
-    picture(path) {
-      return pictures.read(current, key(path), async (signal) => {
-        const result = await ipcCallResult(
-          "remote",
-          "peerFilesRead",
-          { ...where, path },
-          { signal },
-        );
-        if (!result.ok || result.value.kind !== "image") {
-          throw new Error(result.ok ? "not an image" : result.message);
-        }
-        return { mediaType: result.value.mediaType, data: result.value.data };
-      });
+    picture,
+    knownPicture(path) {
+      return pictures.peek(current, key(path));
     },
     subscribePicture(path, listener) {
-      return pictures.subscribe(current, key(path), listener);
+      if (!current || current.signal.aborted) return () => {};
+      const off = pictures.subscribe(current, key(path), listener);
+      const workspace = pictureWorkspace(where);
+      const watched = watchedPictures.get(workspace) ?? new Set();
+      const image = { path, refresh: () => void picture(path, true).catch(() => {}) };
+      watched.add(image);
+      watchedPictures.set(workspace, watched);
+      return () => {
+        off();
+        watched.delete(image);
+        if (!watched.size) watchedPictures.delete(workspace);
+      };
+    },
+    ...grants,
+  };
+}
+
+function failureKind(result: { kind: string }): string {
+  const code = (result as { code?: unknown }).code;
+  return typeof code === "string" ? code : result.kind;
+}
+
+function grantsFor(
+  where: { deviceId: string; workspaceId: string; tabId: string },
+  current: ReadAccess,
+): Pick<ChatFiles, "resolve" | "open"> {
+  const ask = linkBatches(where, current.signal);
+  const key = (link: LinkedFile) =>
+    JSON.stringify([where.deviceId, where.workspaceId, where.tabId, link.href, link.source]);
+  return {
+    resolve(links) {
+      return Promise.all(links.map((link) => resolved.read(current, key(link), () => ask(link))));
+    },
+    async open(link, purpose = "open") {
+      const result = await ipcCallResult(
+        "remote",
+        "peerFilesGrant",
+        { ...where, ...link, purpose },
+        { signal: current.signal },
+      );
+      if (!result.ok) throw new LinkGrantError(result.message, failureKind(result));
+      return result.value.path;
     },
   };
 }
@@ -380,7 +526,12 @@ let room: RoomState | null = null;
 let nextAccess = 0;
 let stopWatching: (() => void) | undefined;
 
-function reset(peer: WatchedPeer, connection: string | null, reads: string | null = null) {
+function reset(
+  peer: WatchedPeer,
+  connection: string | null,
+  reads: string | null = null,
+  grants = false,
+) {
   const previous = peer.access;
   const previousRead = previous?.read;
   const foreground = previousRead && connection === peer.connection;
@@ -391,7 +542,10 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
     folderNames.clear(previousRead.cacheId);
     presence.revoke(previousRead);
     presence.clear(previousRead.cacheId);
+    resolved.revoke(previousRead);
+    resolved.clear(previousRead.cacheId);
     pictures.revoke(previousRead);
+    if (!foreground) pictures.clear(previousRead.cacheId);
   }
   const controller = connection === null ? undefined : new AbortController();
   const id = ++nextAccess;
@@ -402,7 +556,13 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
   peer.connection = connection;
   peer.reads = reads;
   const read = controller
-    ? { id, cacheId: foreground ? previousRead.cacheId : id, scopeId, signal: controller.signal }
+    ? {
+        id,
+        cacheId: foreground ? previousRead.cacheId : id,
+        scopeId,
+        signal: controller.signal,
+        grants,
+      }
     : null;
   peer.access = reads === null ? null : { scopeId, read };
   peer.listeners.notify(undefined);
@@ -419,7 +579,7 @@ function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
     connection !== watcher.connection ||
     (refresh && connection !== null)
   ) {
-    reset(watcher, connection, reads);
+    reset(watcher, connection, reads, serves?.includes(FILE_GRANTS) === true);
   }
 }
 

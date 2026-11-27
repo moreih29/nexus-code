@@ -162,6 +162,13 @@ func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error
 		return nil, mapPathError(err, abs)
 	}
 	defer file.Close()
+	if r.Length == 0 {
+		info, err := file.Stat()
+		if err != nil {
+			return nil, mapPathError(err, abs)
+		}
+		return rangeMetadata(file, info), nil
+	}
 	buf := make([]byte, max(0, min(r.Length, target.Size()-r.Offset)))
 	n, err := file.ReadAt(buf, r.Offset)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -173,6 +180,15 @@ func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error
 		Size:   target.Size(),
 		MTime:  mtime,
 	}, nil
+}
+
+func rangeMetadata(file *os.File, info os.FileInfo) ReadBinaryResult {
+	stamp, _ := previewFileStamp(file, info, false)
+	return ReadBinaryResult{
+		Kind: "ok", Size: info.Size(), MTime: formatMTime(info.ModTime()),
+		Version: fmt.Sprintf("%d.%d.%d.%d.%d", stamp.device, stamp.inode, stamp.change,
+			info.ModTime().UnixNano(), info.Size()),
+	}
 }
 
 func readBinaryAt(ctx context.Context, abs string) (any, error) {

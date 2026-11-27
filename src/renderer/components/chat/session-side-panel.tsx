@@ -21,9 +21,11 @@ import { formatBytes } from "../../../shared/util/format-bytes";
 import { shortId } from "../../../shared/util/short-id";
 import { useNow } from "../../hooks/use-now";
 import { artifactsOf } from "../../services/chat/artifact";
+import { type LinkedFile, useChatFiles, useLinkRun } from "../../services/chat/chat-files";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import { grantsOf, linkKey, pathInRoot, useLinksFound } from "../../services/chat/linked-files";
 import { fileKind } from "../../services/chat/links";
 import type { ChatItem, ChatModel, ToolCall } from "../../services/chat/model";
 import { modelLineOfTab } from "../../services/chat/model-line";
@@ -37,10 +39,12 @@ import {
   exitCodeOf,
   jobCommand,
   type ResultEntry,
+  resultHref,
+  resultSource,
   resultsOf,
 } from "../../services/chat/panel";
 import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
-import { formatTokens, meterLevel, shownReset } from "../../services/chat/usage-line";
+import { formatTokens } from "../../services/chat/usage-line";
 import { cn } from "../../utils/cn";
 import { usageLineOf } from "../agent-view/remote-usage";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
@@ -55,7 +59,9 @@ import { FileKindIcon } from "./file-kind-icon";
 import { GoalSummary, type TabGoal } from "./goal-bar";
 import { FirstFew, Row, Section } from "./panel-section";
 import { ActivitySections } from "./running-section";
-import { usageMeterLabel } from "./usage-line";
+import { Meter, UsageMeterRow, usageMeterKey } from "./usage-meter-row";
+
+export { Meter } from "./usage-meter-row";
 
 const NO_JOBS: ChatPanel["tasks"] = [];
 
@@ -615,30 +621,11 @@ export function PanelUsage({
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.usage.none")}</div>
       ) : (
         limits.map((limit) => (
-          <div
-            key={`${limit.kind}-${limit.scope ?? ""}-${limit.windowMins ?? ""}`}
-            className="flex flex-col gap-0.5 py-0.5"
-          >
-            <Row className="text-app-micro">
-              <span className="min-w-0 flex-1 truncate">
-                {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
-              </span>
-              <span className="shrink-0 tabular-nums">{Math.round(limit.percent)}%</span>
-            </Row>
-            <Meter percent={Math.min(100, limit.percent)} />
-            {limit.resetsAt !== undefined && (
-              <div className="text-app-micro text-muted-foreground">
-                {t("chat.panel.usage.resets", {
-                  time: shownReset(limit.resetsAt).toLocaleString(i18n.language, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                })}
-              </div>
-            )}
-          </div>
+          <UsageMeterRow
+            key={usageMeterKey(limit)}
+            meter={limit}
+            scoped={(usage?.more.length ?? 0) > 0}
+          />
         ))
       )}
     </Section>
@@ -770,16 +757,31 @@ export function ResultsSection({
 }) {
   const { t } = useTranslation();
   const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
+  const grants = grantsOf(useChatFiles());
+  const inRun = useLinkRun();
+  const viaHost = useMemo(() => {
+    const out = new Map<string, LinkedFile>();
+    if (!grants) return out;
+    for (const result of named) {
+      const source = result.kind === "file" ? resultSource(result) : undefined;
+      if (source && pathInRoot(result.target, cwd, rootPath) === null) {
+        out.set(result.target, inRun({ href: resultHref(result), source }));
+      }
+    }
+    return out;
+  }, [grants, named, cwd, rootPath, inRun]);
+  const asked = useMemo(() => (grants ? [...viaHost.values()] : null), [grants, viaHost]);
+  const resolved = useLinksFound(asked);
   const filePlaces = useMemo(() => {
     const index = linkPlaceIndex(tools, cwd);
     const places = new Map<string, string[]>();
     for (const result of named) {
-      if (result.kind !== "file") continue;
+      if (result.kind !== "file" || viaHost.has(result.target)) continue;
       const paths = linkPlaces(result.target, index).map((place) => place.path);
       if (paths.length > 0) places.set(result.target, paths);
     }
     return places;
-  }, [named, tools, cwd]);
+  }, [named, tools, cwd, viaHost]);
   const lookedUp = useMemo(() => [...new Set([...filePlaces.values()].flat())], [filePlaces]);
   const toolsDone = useMemo(
     () =>
@@ -787,14 +789,28 @@ export function ResultsSection({
     [tools],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
-  const filePaths = useMemo(() => {
+  const { filePaths, bare, unread } = useMemo(() => {
     const paths = new Map<string, string>();
+    const bare = new Set<string>();
+    const unread = new Set<string>();
     for (const [target, places] of filePlaces) {
       const path = places.find((place) => found.has(place));
       if (path) paths.set(target, path);
     }
-    return paths;
-  }, [filePlaces, found]);
+    for (const [target, link] of viaHost) {
+      const state = resolved?.get(linkKey(link));
+      if (state === undefined || state === null) continue;
+      if (state !== "failed" && "path" in state) {
+        paths.set(target, state.path);
+        if (!state.readable) bare.add(target);
+      } else {
+        paths.set(target, target);
+        bare.add(target);
+        if (state === "failed") unread.add(target);
+      }
+    }
+    return { filePaths: paths, bare, unread };
+  }, [filePlaces, found, viaHost, resolved]);
   const results = useMemo(
     () =>
       distinctResults(
@@ -812,8 +828,11 @@ export function ResultsSection({
       .reverse();
   }, [artifacts, results]);
   const links = useChatLinks();
-  const open = (target: string, kind: ResultEntry["kind"]) =>
-    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
+  const open = (target: string, kind: ResultEntry["kind"]) => {
+    const link = viaHost.get(target);
+    if (kind === "file") links?.openFile(target, link ? { link } : undefined);
+    else links?.openUrl(target);
+  };
   return (
     <Section
       title={t("chat.panel.results.title")}
@@ -835,6 +854,9 @@ export function ResultsSection({
               key={result.target}
               result={result}
               path={filePaths.get(result.target) ?? null}
+              link={viaHost.get(result.target)}
+              bare={bare.has(result.target)}
+              unread={unread.has(result.target)}
               cwd={cwd}
               workspaceId={workspaceId}
               onOpen={() => open(result.target, result.kind)}
@@ -851,25 +873,6 @@ export function Field({ label, children }: { label: string; children: React.Reac
     <div className="flex min-h-6 items-center gap-2 text-app-ui-sm">
       <span className="w-14 shrink-0 truncate text-muted-foreground">{label}</span>
       <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
-    </div>
-  );
-}
-
-export function Meter({ percent }: { percent: number }) {
-  const level = meterLevel(percent);
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      <div
-        className={cn(
-          "h-full rounded-full",
-          level === "alert"
-            ? "bg-[var(--state-error-fg)]"
-            : level === "warn"
-              ? "bg-[var(--state-warning-fg)]"
-              : "bg-[var(--tab-claude-running-fg)]",
-        )}
-        style={{ width: `${percent}%` }}
-      />
     </div>
   );
 }
@@ -980,12 +983,18 @@ export function JobButton({
 function ResultRow({
   result,
   path,
+  link,
+  bare = false,
+  unread = false,
   cwd,
   workspaceId,
   onOpen,
 }: {
   result: ResultEntry;
   path: string | null;
+  link?: LinkedFile;
+  bare?: boolean;
+  unread?: boolean;
   cwd: string;
   workspaceId: string;
   onOpen: () => void;
@@ -993,10 +1002,10 @@ function ResultRow({
   const { t } = useTranslation();
   const label = path ? shownPath(path, cwd) : result.target;
   const [hover, setHover] = useState<DOMRect | null>(null);
-  const image = path !== null && fileKind(path) === "image";
+  const image = path !== null && !bare && fileKind(path) === "image";
   return (
     <>
-      <LinkMenu target={path ?? result.target} href={result.target} kind={result.kind}>
+      <LinkMenu target={path ?? result.target} href={result.target} kind={result.kind} link={link}>
         <button
           type="button"
           onClick={onOpen}
@@ -1016,6 +1025,11 @@ function ResultRow({
             />
           )}
           <span className="min-w-0 flex-1 truncate">{label}</span>
+          {unread && (
+            <span className="shrink-0 text-app-micro text-muted-foreground">
+              {t("chat.links.load_failed")}
+            </span>
+          )}
           {result.created && (
             <span className="shrink-0 text-app-micro text-muted-foreground">
               {t("chat.panel.results.created")}

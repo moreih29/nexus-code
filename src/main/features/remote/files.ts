@@ -18,7 +18,9 @@ import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
 import type { FsProvider } from "../fs/bridge/provider";
+import { networkLinkOf } from "../fs/link-walk";
 import { asciiLower } from "../fs/outside-grants";
+import { grantRequired } from "./file-grants";
 import { validFileName } from "./file-io";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 
@@ -57,7 +59,7 @@ const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
 
 const WINDOWS_ANCHORED = /^(?:[\\/]|[A-Za-z]:)/;
 
-interface PathStyle {
+export interface PathStyle {
   readonly windows: boolean;
   readonly sep: "/" | "\\";
   readonly path: typeof path.posix;
@@ -66,7 +68,7 @@ interface PathStyle {
 const POSIX: PathStyle = { windows: false, sep: "/", path: path.posix };
 const WINDOWS: PathStyle = { windows: true, sep: "\\", path: path.win32 };
 
-function styleOf(root: string): PathStyle {
+export function styleOf(root: string): PathStyle {
   return WINDOWS_ABSOLUTE.test(root) ? WINDOWS : POSIX;
 }
 
@@ -94,6 +96,21 @@ function within(style: PathStyle, outer: string, inner: string): boolean {
 function absoluteIn(style: PathStyle, base: string, rel: string): string {
   if (!rel) return base;
   return style.windows ? path.win32.join(base, rel) : `${base}/${rel}`;
+}
+
+export function hostFilePath(root: string, p: string): string {
+  const style = styleOf(root);
+  return clean(style, style.windows ? p.replace(/\//g, "\\") : p);
+}
+
+export function isAbsoluteFor(root: string, p: string): boolean {
+  return styleOf(root).windows ? WINDOWS_ABSOLUTE.test(p) : p.startsWith("/");
+}
+
+export function sameHostPath(root: string, a: string, b: string): boolean {
+  const left = hostFilePath(root, a);
+  const right = hostFilePath(root, b);
+  return styleOf(root).windows ? asciiLower(left) === asciiLower(right) : left === right;
 }
 
 export function placeOf(root: string, folders: readonly string[], asked: string): Place {
@@ -229,7 +246,46 @@ export async function outsideFileSource(asked: string): Promise<string> {
   return realOf(absoluteFilePath(asked), asked);
 }
 
-function realOf(absolute: string, asked: string): Promise<string> {
+export type LinkMode = "auto" | "click";
+
+export async function networkLinkRefusal(
+  absolute: string,
+  asked: string,
+  mode: LinkMode = "auto",
+): Promise<RpcFailure | null> {
+  if (namesNetworkPath(asked, absolute)) return null;
+  let hop: string | null;
+  try {
+    hop = await networkLinkOf(absolute);
+  } catch {
+    return forbidden(`${asked} goes through too many links`);
+  }
+  if (hop === null) return null;
+  if (mode === "click" && isAutoMountPath(path.posix.normalize(hop.replace(/\\/g, "/")))) {
+    return null;
+  }
+  return forbidden(`${asked} leads to a network or device path through a link`);
+}
+
+export async function refuseNetworkLink(
+  absolute: string,
+  asked: string,
+  mode: LinkMode = "auto",
+): Promise<void> {
+  const refusal = await networkLinkRefusal(absolute, asked, mode);
+  if (refusal) throw refusal;
+}
+
+export async function outsideRealPath(
+  absolute: string,
+  asked: string,
+  mode: LinkMode,
+): Promise<string> {
+  return realOf(absolute, asked, mode);
+}
+
+async function realOf(absolute: string, asked: string, mode: LinkMode = "auto"): Promise<string> {
+  await refuseNetworkLink(absolute, asked, mode);
   return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") {
       throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
@@ -250,18 +306,68 @@ async function placeToRead(
     place = placeOf(root, folders, asked);
   } catch (error) {
     if (!(error instanceof RpcFailure) || error.code !== RpcErrorCode.Forbidden) throw error;
-    if (!files.named || asked.includes("\0")) throw error;
+    if (asked.includes("\0")) throw error;
+    const real = await underRealRoot(files, workspaceId, root, asked);
+    if (real !== null) return real;
+    if (!files.named) throw error;
     const style = styleOf(root);
     const wanted = clean(style, asked);
     refuseNetworkRead(asked, wanted);
     const same = (a: string) =>
       style.windows ? a.toLowerCase() === wanted.toLowerCase() : a === wanted;
     const named = await files.named(workspaceId);
-    if (!named.some((o) => same(clean(style, o)))) throw error;
+    if (!named.some((o) => same(clean(style, o)))) {
+      const absolute = style.windows ? WINDOWS_ABSOLUTE.test(asked) : asked.startsWith("/");
+      throw absolute ? grantRequired(error.message) : error;
+    }
     return { kind: "folder", absolute: wanted, output: true };
   }
   if (place.kind === "folder") refuseFolderRead(root, folders, asked, place.absolute);
   return place;
+}
+
+export async function realRootOf(
+  files: Pick<RemoteFiles, "fs">,
+  workspaceId: string,
+  root: string,
+): Promise<string | null> {
+  const fs = await files.fs(workspaceId).catch(() => null);
+  if (fs?.kind !== "local") return null;
+  const real = await nodeFs.realpath(root).catch(() => null);
+  return real === null || real === root ? null : real;
+}
+
+async function underRealRoot(
+  files: Pick<RemoteFiles, "fs">,
+  workspaceId: string,
+  root: string,
+  asked: string,
+): Promise<Place | null> {
+  const style = styleOf(root);
+  if (!(style.windows ? WINDOWS_ABSOLUTE.test(asked) : asked.startsWith("/"))) return null;
+  if (namesNetworkPath(asked, clean(style, asked))) return null;
+  const real = await realRootOf(files, workspaceId, root);
+  if (real === null) return null;
+  const rest = inside(style, clean(style, real), clean(style, asked));
+  if (rest === undefined) return null;
+  return { kind: "workspace", rel: style.windows ? rest.split("\\").join("/") : rest };
+}
+
+export async function placeOrRealRoot(
+  files: Pick<RemoteFiles, "fs">,
+  workspaceId: string,
+  root: string,
+  folders: readonly string[],
+  asked: string,
+): Promise<Place> {
+  try {
+    return placeOf(root, folders, asked);
+  } catch (error) {
+    if (!(error instanceof RpcFailure) || asked.includes("\0")) throw error;
+    const real = await underRealRoot(files, workspaceId, root, asked);
+    if (real === null) throw error;
+    return real;
+  }
 }
 
 function notFound(error: unknown, asked: string): never {
@@ -277,7 +383,7 @@ function notFound(error: unknown, asked: string): never {
   );
 }
 
-async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
+export async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
   const parts = rel ? rel.split("/") : [];
   let stat = await fs.stat("").catch((error: unknown) => notFound(error, asked));
   for (let i = 1; i <= parts.length; i++) {
@@ -325,7 +431,7 @@ export async function folderIn(
   return absoluteIn(style, clean(style, root), place.rel);
 }
 
-async function realWithin(
+export async function realWithin(
   fs: FsProvider,
   style: PathStyle,
   folders: readonly string[],
@@ -337,6 +443,8 @@ async function realWithin(
       "a folder outside the workspace's is read only on this computer, not on its host",
     );
   }
+  if (!inNetworkFolder(style.windows, absolute, folders))
+    await refuseNetworkLink(absolute, absolute);
   const real = await nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT")
       throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
@@ -380,7 +488,7 @@ export async function listFiles(
   const folders = anywhere ? [] : await files.folders(workspaceId);
   const place: Place = anywhere
     ? { kind: "folder", absolute: absoluteReadPath(asked, approvedPath !== undefined) }
-    : placeOf(root, folders, asked);
+    : await placeOrRealRoot(files, workspaceId, root, folders, asked);
   if (!anywhere && place.kind === "folder") refuseFolderRead(root, folders, asked, place.absolute);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
@@ -461,6 +569,7 @@ export async function readFile(
     anywhere,
   }: RpcParams<"files.read">,
   approvedPath?: string,
+  granted?: { path: string; realPath: string | null },
 ): Promise<RpcResult<"files.read">> {
   const optedIn = versioned === true || ifVersion !== undefined || requireVersion !== undefined;
   if (ifVersion !== undefined && requireVersion !== undefined) {
@@ -479,9 +588,20 @@ export async function readFile(
     throw new RpcFailure(RpcErrorCode.InvalidParams, "a zero-length read requires version opt-in");
   }
   const folders = anywhere ? [] : await files.folders(workspaceId);
-  const place = anywhere
-    ? { kind: "folder" as const, absolute: absoluteReadPath(asked, approvedPath !== undefined) }
-    : await placeToRead(files, workspaceId, root, folders, asked);
+  const place:
+    | Place
+    | { kind: "folder"; absolute: string; output: true; granted?: { realPath: string | null } } =
+    anywhere
+      ? { kind: "folder", absolute: absoluteReadPath(asked, approvedPath !== undefined) }
+      : granted
+        ? {
+            kind: "folder",
+            absolute: granted.path,
+            output: true,
+            granted: { realPath: granted.realPath },
+          }
+        : await placeToRead(files, workspaceId, root, folders, asked);
+  const grantedReal = "granted" in place ? place.granted?.realPath : undefined;
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   let source: FsPreviewPath;
@@ -499,15 +619,20 @@ export async function readFile(
     absolute = place.absolute;
     source = anywhere
       ? { absolutePath: absolute, ...(approvedPath ? { expectedRealPath: approvedPath } : {}) }
-      : "output" in place
+      : grantedReal !== undefined
         ? {
             absolutePath: absolute,
-            ...(fs.kind === "local" ? { expectedRealPath: await realOf(absolute, asked) } : {}),
+            ...(grantedReal !== null ? { expectedRealPath: grantedReal } : {}),
           }
-        : {
-            absolutePath: absolute,
-            expectedRealPath: await realWithin(fs, style, folders, absolute),
-          };
+        : "output" in place
+          ? {
+              absolutePath: absolute,
+              ...(fs.kind === "local" ? { expectedRealPath: await realOf(absolute, asked) } : {}),
+            }
+          : {
+              absolutePath: absolute,
+              expectedRealPath: await realWithin(fs, style, folders, absolute),
+            };
   }
   const mediaType =
     as === "bytes" ? undefined : IMAGE_TYPES[style.path.extname(absolute).toLowerCase()];
@@ -516,6 +641,12 @@ export async function readFile(
 
   const verifyGrant = async () => {
     if (anywhere || place.kind !== "folder") return;
+    if (grantedReal !== undefined) {
+      if (grantedReal !== null && (await realOf(absolute, asked, "click")) !== grantedReal) {
+        throw fileChanged(requireVersion !== undefined);
+      }
+      return;
+    }
     const currentFolders = await files.folders(workspaceId);
     const current = await placeToRead(files, workspaceId, root, currentFolders, asked);
     if (current.kind !== "folder" || "output" in current !== "output" in place) {

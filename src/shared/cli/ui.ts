@@ -4,6 +4,7 @@ import type {
   ChatConfig,
   ChatPage,
   ChatPeek,
+  FileLinkSource,
   RemoteConsent,
   RpcParams,
   RpcResult,
@@ -740,7 +741,19 @@ export interface CliUiOps {
   };
   "chat.outsideFiles": {
     args: { workspaceId: string };
-    result: { files: string[] };
+    result: { files: string[]; standing: string[]; agent: string[] };
+  };
+  "chat.fileLinks": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      links: { href: string; source: Exclude<FileLinkSource, { kind: "file" }> }[];
+    };
+    result: { candidates: (string[] | null)[] };
+  };
+  "chat.sourcesPresent": {
+    args: { workspaceId: string; tabId: string; sources: FileLinkSource[] };
+    result: { present: boolean[] };
   };
   "chat.settings": {
     args: {

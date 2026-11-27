@@ -11,6 +11,7 @@ import {
 } from "electron";
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
+import { logLinkTextStops } from "../shared/chat/link-text";
 import { DEFAULT_THEME } from "../shared/design-tokens";
 import { limitLog } from "../shared/log/limit";
 import { createLogger, initMainLogger } from "../shared/log/main";
@@ -122,7 +123,6 @@ import {
   createMainWindow,
   updateTitleBarOverlays,
 } from "./features/window";
-import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
@@ -172,6 +172,8 @@ initMainLogger();
 const logger = createLogger("main");
 if (logsDirWarning) logger.warn(logsDirWarning);
 const gitWatcherFailures = limitLog(logger);
+const linkTextStops = limitLog(createLogger("link-text"));
+logLinkTextStops((line) => linkTextStops.log("warn", "stop", line));
 
 if (!app.requestSingleInstanceLock()) {
   logger.info("NexusCode already runs on this profile: showing it instead");
@@ -518,12 +520,11 @@ app.whenReady().then(async () => {
     }),
   );
   installAppSessionPermissions(session.defaultSession);
-  installAppCsp(
+  installAppRequestGuard(
     session.defaultSession,
     appPage(),
     !app.isPackaged && process.env.NEXUS_CSP_REPORT_ONLY === "1",
   );
-  installAppRequestGuard(session.defaultSession, path.dirname(appPage().indexPath));
   startDesktopNotifications();
 
   if (isMac()) {
@@ -691,6 +692,7 @@ app.whenReady().then(async () => {
       get: () => stateService.getState().remoteTerminalControl ?? false,
       set: (allowed) => stateService.setState({ remoteTerminalControl: allowed }),
     },
+    legacyOutsideFiles: () => stateService.getState().remoteLegacyOutsideFiles ?? true,
     agents: {
       get: () => stateService.getState().remoteAgents ?? "ask",
       set: (policy) => stateService.setState({ remoteAgents: policy }),

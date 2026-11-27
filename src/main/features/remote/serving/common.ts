@@ -25,6 +25,7 @@ export const SERVES: readonly Capability[] = [
   "chat.peek",
   "profiles.usage.people",
   "profiles.connection",
+  "files.grants",
 ];
 
 export function servesWith(
@@ -42,7 +43,11 @@ export function servesWith(
       (c !== "agents" || allowAgents) &&
       (c !== "push" || allowPush) &&
       ((c !== "files" && c !== "files.write" && c !== "system.stats") || servesFiles),
-  ).filter((c, _i, served) => c !== "chat.peek" || served.includes("chat.read"));
+  ).filter(
+    (c, _i, served) =>
+      (c !== "chat.peek" || served.includes("chat.read")) &&
+      (c !== "files.grants" || (served.includes("files") && served.includes("chat.read"))),
+  );
 }
 
 export { oneLine } from "../../../../shared/remote/one-line";

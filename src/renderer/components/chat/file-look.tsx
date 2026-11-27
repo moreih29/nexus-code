@@ -197,7 +197,11 @@ export function FileLookBody({
       preview={isPreviewable(path) === "supported" && view.mode === "preview"}
       at={at}
       onImageSize={onImageSize}
-      imageRevision={peer && !draft ? (chatFiles?.epoch ?? undefined) : undefined}
+      peerImage={
+        peer && chatFiles?.connection != null
+          ? { watch: true, connection: chatFiles.connection }
+          : undefined
+      }
     />
   );
 }
@@ -231,10 +235,15 @@ function PeerWorkspaceLook({
 }) {
   const { watch, connection, toolbar } = peerFile;
   const text = isText(path);
-  const revision = usePeerWorkspaceRevision(workspaceId, path, watch && !text, connection);
+  const image = isImageFile(path);
+  const revision = usePeerWorkspaceRevision(
+    workspaceId,
+    path,
+    watch && !text && !image,
+    connection,
+  );
 
   if (!text) {
-    const image = isImageFile(path);
     return (
       <div className="flex h-full min-h-0 flex-col">
         {image && <div className={FILE_LOOK_TOOLBAR_CLASS}>{toolbar}</div>}
@@ -246,6 +255,7 @@ function PeerWorkspaceLook({
               root={root}
               preview={false}
               toolbar={toolbar}
+              peerImage={peerFile}
             />
           </PeerPreviewVersion.Provider>
         </div>
@@ -280,11 +290,11 @@ function LookBody({
   at,
   onImageSize,
   toolbar,
-  imageRevision,
+  peerImage,
   root,
 }: {
   workspaceId: string;
-  imageRevision?: number;
+  peerImage?: { watch: boolean; connection: number };
   toolbar?: ReactNode;
   path: string;
   preview: boolean;
@@ -300,7 +310,7 @@ function LookBody({
           workspaceId={workspaceId}
           filePath={path}
           onNaturalSize={onImageSize}
-          revision={imageRevision}
+          peerFile={peerImage}
           fill
         />
       </div>

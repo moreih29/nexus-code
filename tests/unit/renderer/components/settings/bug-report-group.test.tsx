@@ -17,6 +17,7 @@ const { bugReportFailureMessage, draftAsShown, sendBugReport } = await import(
 );
 
 const server = "http://localhost:8787";
+const owner = JSON.stringify([server, "u1"]);
 const signedIn: RemoteAccountState = {
   status: "signed-in",
   server,
@@ -123,6 +124,13 @@ describe("the bug report in About", () => {
     expect(ready).toContain("11 / 3000");
     expect(ready).not.toMatch(/<button[^>]*disabled=""[^>]*data-testid="bug-report-send"/);
     expect(fields({ description: "long enough", sending: true })).toContain("Sending…");
+  });
+
+  test("offers to discard the edited draft in both languages", async () => {
+    expect(fields({ description: "qa-draft", onDiscard: noop })).toContain(">Discard draft<");
+    const ko = await renderIn("ko", form({ description: "qa-draft", onDiscard: noop }));
+    expect(ko).toContain(">초안 삭제<");
+    expect(fields()).not.toContain("bug-report-discard");
   });
 
   test("shows what is sent, with its real values and one line per error", () => {
@@ -284,8 +292,8 @@ describe("sending from the form", () => {
       includeErrors: false,
       locale: "en",
     } as const;
-    expect(await sendBugReport(draft)).toBe(true);
-    expect(call).toHaveBeenCalledWith("remote", "sendBugReport", draft);
+    expect(await sendBugReport(owner, draft)).toBe(true);
+    expect(call).toHaveBeenCalledWith("remote", "sendBugReport", { ...draft, owner });
     expect(shown).toHaveBeenCalledWith({ kind: "info", message: "Report sent. Thank you." });
   });
 
@@ -301,7 +309,7 @@ describe("sending from the form", () => {
       includeErrors: true,
       locale: "en",
     } as const;
-    expect(await sendBugReport(draft)).toBe(false);
+    expect(await sendBugReport(owner, draft)).toBe(false);
     expect(shown).toHaveBeenCalledWith({
       kind: "error",
       message: "Too many reports. Try again in 2 minutes.",

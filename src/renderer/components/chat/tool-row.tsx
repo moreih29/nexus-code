@@ -1,5 +1,5 @@
 import { Ban, Check, CircleStop, Layers2, LoaderCircle, X } from "lucide-react";
-import { useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { shownPath } from "../../../shared/fs/relative-path";
 import { imageFileOf } from "../../services/chat/image-look";
@@ -10,6 +10,7 @@ import {
   type ToolRowStatuses,
 } from "../../services/chat/running";
 import { cn } from "../../utils/cn";
+import { showToast } from "../ui/toast";
 import { ToggleChevron } from "../ui/toggle-chevron";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { Highlighted, highlightCode, languageOf } from "./code-highlight";
@@ -49,6 +50,11 @@ export function BackgroundBadge({ testId }: { testId?: string }) {
 }
 
 const MAX_OUTPUT_CHARS = 20_000;
+
+export const ToolOutputContext = createContext<
+  | ((toolUseId: string, signal: AbortSignal) => Promise<{ text: string; truncated?: boolean }>)
+  | null
+>(null);
 
 export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackground }: ToolRowProps) {
   const { t } = useTranslation();
@@ -165,6 +171,29 @@ function StatusIcon({ status }: { status: ToolRowStatus }) {
 
 export function ToolDetail({ tool, className }: { tool: ToolCall; className?: string }) {
   const { t } = useTranslation();
+  const readOutput = useContext(ToolOutputContext);
+  const [expanded, setExpanded] = useState(false);
+  const [full, setFull] = useState<{ text: string; truncated?: boolean } | null>(null);
+  const result = tool.result;
+  const remote = result?.truncated === true;
+  const canExpand = remote
+    ? Boolean(readOutput)
+    : readOutput !== null && (result?.text.length ?? 0) > MAX_OUTPUT_CHARS;
+  useEffect(() => {
+    if (!expanded || !remote || !readOutput) return;
+    const request = new AbortController();
+    void readOutput(tool.id, request.signal).then(
+      (output) => {
+        if (!request.signal.aborted) setFull(output);
+      },
+      () => {
+        if (request.signal.aborted) return;
+        setExpanded(false);
+        showToast({ kind: "error", message: t("chat.tool.output_failed") });
+      },
+    );
+    return () => request.abort();
+  }, [expanded, remote, readOutput, tool.id, t]);
   const input = (tool.input ?? {}) as Record<string, unknown>;
   const structured = (tool.result?.structured ?? null) as Record<string, unknown> | null;
   const patch =
@@ -220,7 +249,27 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
           <Highlighted code={input.command} language="bash" />
         </div>
       )}
-      {body}
+      {canExpand && expanded && !remote && result ? (
+        <Pre text={result.text} full />
+      ) : canExpand && expanded && full ? (
+        <Pre text={full.truncated ? `${full.text}\n…` : full.text} full />
+      ) : (
+        body
+      )}
+      {canExpand && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-busy={expanded && remote && !full}
+          className="w-full border-t border-border px-2 py-1.5 text-left text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            setFull(null);
+            setExpanded(!expanded);
+          }}
+        >
+          {t(expanded ? "chat.tool.output_collapse" : "chat.tool.output_expand")}
+        </button>
+      )}
       {tool.result && tool.result.images.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-border p-2">
           {tool.result.images.map((_, i, images) => (
@@ -338,12 +387,15 @@ function Pre({
   text,
   language,
   added = false,
+  full = false,
 }: {
   text: string;
   language?: string;
   added?: boolean;
+  full?: boolean;
 }) {
-  const shown = text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n…` : text;
+  const shown =
+    !full && text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n…` : text;
   return (
     <pre
       className={cn(
