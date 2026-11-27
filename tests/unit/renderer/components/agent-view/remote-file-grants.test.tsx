@@ -1,7 +1,10 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { useRemoteLinks } from "../../../../../src/renderer/components/agent-view/remote-links";
 import { FileCard } from "../../../../../src/renderer/components/chat/answer-extras";
+import { ChatLinksContext } from "../../../../../src/renderer/components/chat/chat-links";
+import { ChatMarkdown } from "../../../../../src/renderer/components/chat/chat-markdown";
 import * as fileLook from "../../../../../src/renderer/components/chat/file-look";
 import {
   QuickLook,
@@ -11,10 +14,14 @@ import { watchToasts } from "../../../../../src/renderer/components/ui/toast";
 import {
   type ChatFiles,
   ChatFilesContext,
+  FileLinkSourceContext,
   type LinkedFile,
   LinkGrantError,
 } from "../../../../../src/renderer/services/chat/chat-files";
+import * as domFinder from "../../../../../src/renderer/services/editor/preview/find/dom-finder";
+import * as peerWorkspace from "../../../../../src/renderer/services/remote/peer-workspace";
 import type { RemoteTarget } from "../../../../../src/renderer/state/stores/remote-view";
+import { withTestDom } from "../../../../helpers/test-dom";
 
 const target: RemoteTarget = {
   deviceId: "d1",
@@ -37,7 +44,7 @@ interface Seen {
   toasts: string[];
 }
 
-function capture(files: Partial<ChatFiles>) {
+function capture(files: Partial<ChatFiles>, remoteTarget = target) {
   const seen: Seen = { there: [], open: [], shows: [], toasts: [] };
   const all = {
     access: null,
@@ -61,7 +68,7 @@ function capture(files: Partial<ChatFiles>) {
   let links: ReturnType<typeof useRemoteLinks> | undefined;
   function CaptureLinks() {
     links = useRemoteLinks(
-      target,
+      remoteTarget,
       { model: { items: [], tools: {}, agentItems: {} } },
       all,
       (look) => seen.shows.push(look),
@@ -73,7 +80,7 @@ function capture(files: Partial<ChatFiles>) {
   const stop = watchToasts((toast) => seen.toasts.push(String(toast.message)));
   stops.push(stop);
   if (!links) throw new Error("no links");
-  return { links, seen };
+  return { files: all, links, seen };
 }
 
 const stops: (() => void)[] = [];
@@ -105,12 +112,95 @@ test("a click on an absolute path inside the workspace reads it directly", async
   expect(seen.shows).toEqual([{ files: ["/repo/src/a.ts"], index: 0 }]);
 });
 
+test.each([
+  ["remote chat", ":7"],
+  ["remote chat", "#L7"],
+  ["QuickLook preview", ":7"],
+  ["QuickLook preview", "#L7"],
+])("%s keeps line 7 after granting a Windows link ending in %s", async (view, tail) => {
+  const href = "C:\\x\\.y\\a.ts";
+  const granted = "C:/x/.y/a.ts";
+  const cwd = "C:/repo";
+  const parent = `${cwd}/notes.md`;
+  const text = `[outside](<${href}${tail}>)`;
+  const workspaceId = peerWorkspace.peerWorkspaceId(target.deviceId, target.workspaceId);
+  const { files, links, seen } = capture(
+    {
+      access: { scope: "qa-r6", signal: new AbortController().signal },
+      open: async () => granted,
+      resolve: async () => [{ path: granted, readable: false }],
+    },
+    { ...target, path: cwd, cwd },
+  );
+  const source = view === "remote chat" ? answer : { kind: "file", parent };
+  const read = spyOn(peerWorkspace, "usePeerText").mockReturnValue({ kind: "text", text });
+  const find = spyOn(domFinder, "createDomFinder").mockReturnValue({
+    search() {},
+    move() {},
+    clear() {},
+  });
+  try {
+    await withTestDom(async (host, root) => {
+      await act(async () =>
+        root.render(
+          <ChatFilesContext.Provider value={files}>
+            <ChatLinksContext.Provider value={links}>
+              {view === "remote chat" ? (
+                <FileLinkSourceContext.Provider value={answer}>
+                  <ChatMarkdown text={text} workspaceId={workspaceId} cwd={cwd} rootPath={cwd} />
+                </FileLinkSourceContext.Provider>
+              ) : (
+                <QuickLook
+                  workspaceId={workspaceId}
+                  peerRoot={cwd}
+                  local={false}
+                  area={null}
+                  list={{ files: [parent], index: 0 }}
+                  onIndex={() => {}}
+                  onClose={() => {}}
+                />
+              )}
+            </ChatLinksContext.Provider>
+          </ChatFilesContext.Provider>,
+        ),
+      );
+      if (view === "QuickLook preview") {
+        await act(async () => {
+          await import("../../../../../src/renderer/components/editor/preview/markdown-preview");
+        });
+      }
+      const link = host.querySelector("a");
+      expect(link?.textContent).toBe("outside");
+      await act(async () => link?.click());
+    });
+  } finally {
+    find.mockRestore();
+    read.mockRestore();
+  }
+  expect(seen.open).toEqual([{ href, source }]);
+  expect(seen.shows).toEqual([{ files: [granted], index: 0, at: { path: granted, line: 7 } }]);
+});
+
 test("an older host resolves the link here, as before", async () => {
   const { links, seen } = capture({});
   links.openFile("/outside/qa-a.txt", { link: { href: "/outside/qa-a.txt", source: answer } });
   await settle();
   expect(seen.open).toEqual([]);
   expect(seen.shows).toEqual([{ files: ["/outside/qa-a.txt"], index: 0 }]);
+});
+
+test("a network link that would fold into the workspace still goes to the grant host", async () => {
+  const { links, seen } = capture({
+    open: async () => {
+      throw new LinkGrantError("network path refused", "forbidden");
+    },
+  });
+  const link = { href: "//repo/share/../../repo/a.ts", source: answer };
+  links.openFile(link.href, { link });
+  await settle();
+  expect(seen.open).toEqual([link]);
+  expect(seen.there).toEqual([]);
+  expect(seen.shows).toEqual([]);
 });
 
 test("a gallery opened from a card grants the card first and keeps its neighbours' links", async () => {

@@ -9,6 +9,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { Components } from "react-markdown";
+import { isWindowsPathTarget, linkHrefOf } from "../../../../shared/chat/link-text";
+import { isNetworkLink, networkLinkPath } from "../../../../shared/fs/outside-url";
 import { createLogger } from "../../../../shared/log/renderer";
 import { useChatFiles } from "../../../services/chat/chat-files";
 import { grantsOf } from "../../../services/chat/linked-files";
@@ -22,11 +24,13 @@ import { buildOutsideUrl, buildWorkspaceUrl } from "../../../services/editor/pre
 import { peerOf } from "../../../services/remote/peer-workspace";
 import { copyText } from "../../../utils/clipboard";
 import { useChatLinks } from "../../chat/chat-links";
+import { ImageChip } from "../../chat/file-image";
 import {
   ImageName,
   MarkdownBody,
   MarkdownCodeBlock,
   type MarkdownNode,
+  markdownFileTarget,
   markdownText,
 } from "../../ui/markdown-body";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
@@ -98,19 +102,23 @@ export function MarkdownPreview({
   const chatLinks = useChatLinks();
   const viaHost = grantsOf(useChatFiles()) && peerOf(workspaceId) !== null;
   const onLinkClick = useCallback(
-    (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
+    (href: string, written: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
+      const link = { href: written, source: { kind: "file", parent: currentFileAbsPath } } as const;
+      if (viaHost && chatLinks && (isNetworkLink(written) || isNetworkLink(href))) {
+        chatLinks.openFile(href || written, { link });
+        return;
+      }
       const classified = classifyLinkHref(href, linkCtx);
       if (
         viaHost &&
         chatLinks &&
+        href &&
         classified.kind === "blocked" &&
         !href.startsWith("#") &&
-        !/^[a-z][a-z0-9+.-]+:/i.test(href)
+        (isWindowsPathTarget(written) || !/^[a-z][a-z0-9+.-]+:/i.test(href))
       ) {
-        chatLinks.openFile(href, {
-          link: { href, source: { kind: "file", parent: currentFileAbsPath } },
-        });
+        chatLinks.openFile(href, { link });
         return;
       }
       switch (classified.kind) {
@@ -171,28 +179,47 @@ export function MarkdownPreview({
 
   const components = useMemo<Components>(
     () => ({
-      a({ href, children, ...rest }) {
+      a({ href, children, node, ...rest }) {
         const safeHref = typeof href === "string" ? href : "";
+        const target = markdownFileTarget(node);
+        const written = target?.written ?? linkHrefOf(safeHref);
         return (
-          <a {...rest} href={safeHref} onClick={(e) => onLinkClick(safeHref, e)}>
+          <a
+            {...rest}
+            href={safeHref}
+            onClick={(e) => onLinkClick(target?.rendered ?? safeHref, written, e)}
+          >
             {children}
           </a>
         );
       },
-      img({ src, alt, ...rest }) {
-        const rawSrc = typeof src === "string" ? src : "";
+      img({ src, alt, node, ...rest }) {
+        const target = markdownFileTarget(node);
+        const rawSrc = target?.rendered ?? (typeof src === "string" ? src : "");
+        const written = target?.written ?? linkHrefOf(rawSrc);
+        const network = viaHost ? (networkLinkPath(rawSrc) ?? networkLinkPath(written)) : null;
+        if (network !== null) {
+          return (
+            <ImageChip
+              path={network}
+              link={{ href: written, source: { kind: "file", parent: currentFileAbsPath } }}
+            />
+          );
+        }
         const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         const unread = (
           <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />
         );
         const outside =
-          resolved === null && viaHost ? linkTargetPath(rawSrc, currentFileAbsPath) : null;
+          resolved === null && viaHost
+            ? linkTargetPath(rawSrc || written, currentFileAbsPath)
+            : null;
         if (outside) {
           return (
             <PeerFileImage
               {...rest}
               path={outside}
-              href={rawSrc}
+              href={written}
               parent={currentFileAbsPath}
               alt={alt ?? ""}
               fallback={unread}
@@ -227,7 +254,7 @@ export function MarkdownPreview({
       )}
       <PreviewContext.Provider value={previewCtx}>
         <div className="md-content mx-auto max-w-[72ch] px-6 py-4 text-[var(--surface-island-fg)]">
-          <MarkdownBody source={text} components={components} html />
+          <MarkdownBody source={text} components={components} html writtenFileTargets={viaHost} />
         </div>
       </PreviewContext.Provider>
     </div>

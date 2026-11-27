@@ -7,8 +7,13 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../../packages/remote-protocol/src";
-import { cleanLinkHref, isHtmlFile, textLinksTo } from "../../../../shared/chat/link-text";
-import { isAutoMountPath, isDevicePath } from "../../../../shared/fs/outside-url";
+import {
+  cleanLinkHref,
+  isHtmlFile,
+  linksTo,
+  linkTargetSet,
+} from "../../../../shared/chat/link-text";
+import { isAutoMountPath, isDevicePath, networkLinkPath } from "../../../../shared/fs/outside-url";
 import { createLogger } from "../../../../shared/log/main";
 import { shortId } from "../../../../shared/util/short-id";
 import type { CliServices } from "../../cli/context";
@@ -83,6 +88,7 @@ function inStanding(ctx: LinkContext, p: string): boolean {
 async function lookAt(ctx: LinkContext, candidate: string, mode: Mode): Promise<Look> {
   if (candidate.includes("\0")) return { kind: "skip" };
   const p = hostFilePath(ctx.rootPath, candidate);
+  if (namesNetworkPath(candidate) && !namesNetworkPath(p)) return { kind: "blocked" };
   if (!isAbsoluteFor(ctx.rootPath, p)) return { kind: "skip" };
   try {
     const place = await placeOrRealRoot(ctx.files, ctx.workspaceId, ctx.rootPath, ctx.folders, p);
@@ -101,7 +107,6 @@ async function lookAt(ctx: LinkContext, candidate: string, mode: Mode): Promise<
       return { kind: "blocked" };
     }
   }
-  if (namesNetworkPath(candidate) && !namesNetworkPath(p)) return { kind: "blocked" };
   if (namesNetworkPath(p)) {
     const onRootShare =
       !isAutoMountPath(p) &&
@@ -152,6 +157,8 @@ async function found(ctx: LinkContext, look: Look): Promise<Found> {
 
 function linkPathFrom(root: string, parent: string, href: string): string | null {
   let cleaned = cleanLinkHref(href);
+  const network = networkLinkPath(cleaned);
+  if (network !== null) return network;
   if (cleaned.startsWith("file://")) {
     try {
       cleaned = decodeURIComponent(new URL(cleaned).pathname);
@@ -173,12 +180,42 @@ function linkPathFrom(root: string, parent: string, href: string): string | null
 
 type ParentLinks = { candidates: string[] } | { beyond: true } | null;
 
+type ParentText = {
+  targets: ReadonlySet<string>;
+  beyond: boolean;
+  parentGrant?: FileGrant;
+} | null;
+
+type ParentTexts = Map<string, Promise<ParentText>>;
+
 async function parentLinks(
   ctx: LinkContext,
   source: Extract<FileLinkSource, { kind: "file" }>,
   href: string,
+  texts: ParentTexts,
 ): Promise<{ links: ParentLinks; parentGrant?: FileGrant }> {
   const parent = hostFilePath(ctx.rootPath, source.parent);
+  const key = JSON.stringify([parent, source.grant ?? null]);
+  let reading = texts.get(key);
+  if (!reading) {
+    reading = parentText(ctx, source, parent);
+    texts.set(key, reading);
+  }
+  const text = await reading;
+  if (!text) return { links: null };
+  if (!linksTo(text.targets, href)) return { links: text.beyond ? { beyond: true } : null };
+  const candidate = linkPathFrom(ctx.rootPath, parent, href);
+  return {
+    links: candidate === null ? null : { candidates: [candidate] },
+    ...(text.parentGrant ? { parentGrant: text.parentGrant } : {}),
+  };
+}
+
+async function parentText(
+  ctx: LinkContext,
+  source: Extract<FileLinkSource, { kind: "file" }>,
+  parent: string,
+): Promise<ParentText> {
   let parentGrant: FileGrant | undefined;
   let read: { base64: string; sizeBytes: number } | null = null;
   if (source.grant !== undefined) {
@@ -193,32 +230,29 @@ async function parentLinks(
       });
     } catch (error) {
       if (error instanceof RpcFailure && error.code === RpcErrorCode.GrantExpired) throw error;
-      return { links: null };
+      return null;
     }
     if (ctx.fs.kind === "local" && parentGrant.realPath !== null) {
       const real = await outsideRealPath(parent, parent, "click").catch(() => null);
-      if (real !== parentGrant.realPath) return { links: null };
+      if (real !== parentGrant.realPath) return null;
     }
     read = await ranged(ctx.fs.readAbsoluteRange(parent, 0, MAX_FILE_SOURCE_PARENT_BYTES));
   } else {
     const look = await lookAt(ctx, parent, "auto");
     if (look.kind === "inside") {
-      if ((await found(ctx, look))?.kind !== "file") return { links: null };
+      if ((await found(ctx, look))?.kind !== "file") return null;
       read = await ranged(ctx.fs.readRange(look.rel, 0, MAX_FILE_SOURCE_PARENT_BYTES));
     } else if (look.kind === "folder" || (look.kind === "outside" && inStanding(ctx, parent))) {
-      if ((await found(ctx, look))?.kind !== "file") return { links: null };
+      if ((await found(ctx, look))?.kind !== "file") return null;
       read = await ranged(ctx.fs.readAbsoluteRange(parent, 0, MAX_FILE_SOURCE_PARENT_BYTES));
-    } else return { links: null };
+    } else return null;
   }
-  if (!read) return { links: null };
+  if (!read) return null;
   const bytes = Buffer.from(read.base64, "base64").subarray(0, MAX_FILE_SOURCE_PARENT_BYTES);
-  if (looksBinary(bytes)) return { links: null };
-  if (!textLinksTo(textOf(bytes), href, { html: isHtmlFile(parent) })) {
-    return { links: read.sizeBytes > MAX_FILE_SOURCE_PARENT_BYTES ? { beyond: true } : null };
-  }
-  const candidate = linkPathFrom(ctx.rootPath, parent, href);
+  if (looksBinary(bytes)) return null;
   return {
-    links: candidate === null ? null : { candidates: [candidate] },
+    targets: linkTargetSet(textOf(bytes), { html: isHtmlFile(parent) }),
+    beyond: read.sizeBytes > MAX_FILE_SOURCE_PARENT_BYTES,
     ...(parentGrant ? { parentGrant } : {}),
   };
 }
@@ -261,9 +295,11 @@ async function candidatesOf(
     : { candidates: [] };
   const byIndex = new Map(asked.map(({ i }, at) => [i, fromChat.candidates[at] ?? null]));
   const out: { links: ParentLinks; parentGrant?: FileGrant }[] = [];
+  const texts: ParentTexts = new Map();
   for (const [i, link] of links.entries()) {
-    if (link.source.kind === "file") out.push(await parentLinks(ctx, link.source, link.href));
-    else {
+    if (link.source.kind === "file") {
+      out.push(await parentLinks(ctx, link.source, link.href, texts));
+    } else {
       const places = byIndex.get(i) ?? null;
       out.push({ links: places && places.length > 0 ? { candidates: places } : null });
     }

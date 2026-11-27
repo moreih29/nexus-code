@@ -19,6 +19,7 @@ import {
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
+import { writtenHrefOf } from "../../utils/remark-plugins";
 import { ImageName, MarkdownBody } from "../ui/markdown-body";
 import { showToast } from "../ui/toast";
 import { LinkMenu, useChatLinks, useLinkPlaces } from "./chat-links";
@@ -50,10 +51,10 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     [hostSource, cwd, rootPath],
   );
   const onLink = useCallback(
-    (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
+    (href: string, sent: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
       if (links && hostSource && viaHost(href) && fileLike(href, cwd)) {
-        links.openFile(href, { link: { href, source: hostSource } });
+        links.openFile(href, { link: { href: sent, source: hostSource } });
         return;
       }
       if (isNetworkLink(href)) {
@@ -82,10 +83,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 
   const components = useMemo<Components>(
     () => ({
-      a({ href, children, ...rest }) {
+      a({ href, children, node, ...rest }) {
         const safe = typeof href === "string" ? href : "";
+        const sent = writtenHrefOf(node) ?? safe;
         const link = (icon?: React.ReactNode) => (
-          <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, e)}>
+          <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, sent, e)}>
             {icon}
             {children}
           </a>
@@ -95,6 +97,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           return (
             <HostFileLink
               href={safe}
+              sent={sent}
               source={hostSource}
               path={path}
               link={link(
@@ -132,14 +135,14 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           link()
         );
       },
-      img({ src, alt }) {
+      img({ src, alt, node }) {
         const label = <ImageName alt={alt} />;
         if (typeof src === "string" && hostSource && viaHost(src) && fileLike(src, cwd)) {
           const path = placesOf(src, cwd)[0]?.path ?? src;
           if (fileKind(path) !== "image") return label;
           return (
             <HostImage
-              href={src}
+              href={writtenHrefOf(node) ?? src}
               source={hostSource}
               path={path}
               workspaceId={workspaceId}
@@ -253,18 +256,20 @@ function useHostLink(href: string, source: FileLinkSource): [LinkedFile, LinkSta
 
 function HostFileLink({
   href,
+  sent,
   source,
   path,
   link,
   children,
 }: {
   href: string;
+  sent: string;
   source: FileLinkSource;
   path: string;
   link: React.ReactElement;
   children: React.ReactNode;
 }) {
-  const [linked, found] = useHostLink(href, source);
+  const [linked, found] = useHostLink(sent, source);
   if (found === undefined || found === null) return <span title={href}>{children}</span>;
   const target = found !== "failed" && "path" in found ? found.path : path;
   return (

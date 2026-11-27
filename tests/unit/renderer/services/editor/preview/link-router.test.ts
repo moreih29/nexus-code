@@ -54,6 +54,16 @@ describe("linkTargetPath — where a link in an opened file points, inside the w
     expect(linkTargetPath("x.png", "C:/w/a.md")).toBe("C:/w/x.png");
   });
 
+  test.each([
+    ["C:/w/../../x.png", "C:/x.png"],
+    ["C:%5C..%5C..%5Cb.png", "C:/b.png"],
+    ["d:/../..", "D:/"],
+    ["../../x.png", "C:/x.png"],
+    [String.raw`\\srv\sh\..\..\x`, String.raw`\\srv\sh\..\..\x`],
+  ])("keeps the root of %s", (href, expected) => {
+    expect(linkTargetPath(href, "C:/w/a.md")).toBe(expected);
+  });
+
   test("is nothing for a URL, an anchor or an empty link", () => {
     expect(linkTargetPath("https://example.com/a.png", "/ws/a.md")).toBeNull();
     expect(linkTargetPath("#top", "/ws/a.md")).toBeNull();

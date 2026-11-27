@@ -39,6 +39,7 @@ import {
   exitCodeOf,
   jobCommand,
   type ResultEntry,
+  resultHref,
   resultSource,
   resultsOf,
 } from "../../services/chat/panel";
@@ -764,7 +765,7 @@ export function ResultsSection({
     for (const result of named) {
       const source = result.kind === "file" ? resultSource(result) : undefined;
       if (source && pathInRoot(result.target, cwd, rootPath) === null) {
-        out.set(result.target, inRun({ href: result.target, source }));
+        out.set(result.target, inRun({ href: resultHref(result), source }));
       }
     }
     return out;

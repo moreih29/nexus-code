@@ -120,7 +120,7 @@ export function useRemoteLinks(
         (path) => {
           if (opened !== mine) return;
           if (!gallery) {
-            const at = resolveFileLink(link.href, cwd);
+            const at = resolveFileLink(written, cwd);
             showFile({ ...(at ? { ...at } : {}), path });
             return;
           }
